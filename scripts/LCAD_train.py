@@ -9,7 +9,7 @@ def train_model(txt_rddf, image_folder):
         dados_rddf = [line.strip().split(" ") for line in f]
 
     for i in range(len(dados_rddf)):
-        if(os.path.isfile(image_folder + '/' + dados_rddf[4] + '-r.png')):
+        if(os.path.isfile(image_folder + '/' + dados_rddf[i][4] + '-r.png')):
             print('existe')
         else:
             print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
