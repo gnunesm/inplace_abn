@@ -12,7 +12,7 @@ def train_model(txt_rddf, image_folder):
         if(os.path.isfile(image_folder + '/' + dados_rddf[i][4] + '-r.png')):
             print('existe')
         else:
-            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+            print(image_folder + '/' + dados_rddf[i][4] + '-r.png')
 
 #train_model("/dados/rddf_predict/te.txt", "/dados/log_png_1003")
 train_model(sys.argv[1], sys.argv[2])
