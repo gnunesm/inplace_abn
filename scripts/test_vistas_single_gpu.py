@@ -157,7 +157,7 @@ def main():
     cudnn.benchmark = True
 
     # Create model by loading a snapshot
-    body, head, cls_state = load_snapshot(args.snapshot)
+    body, head, cls_state = load_snapshot('/home/sabrina/Documents/Inplace_ABN/wide_resnet38_deeplab_vistas.pth.tar')
     model = SegmentationModule(body, head, 256, 5, args.fusion_mode) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
@@ -196,7 +196,7 @@ def main():
     #     shuffle=True,
     # )
 
-    my_dataset, image_folder = get_model('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
+    my_dataset, image_folder = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
     data_imgs = my_dataset[:, -1]
     data_target = my_dataset[:, :-1]
 
@@ -216,13 +216,6 @@ def main():
     LR = 1e-5
     momentum = 0.98
     epochs = 200
-
-    
-    data = torch.load('ckpoint_399_SGDwithLRdecay_1e-05.pt')
-    tmpdict = {'weight' : data['cls.weight'], 
-               'bias': data['cls.bias']}
-    model.cls.load_state_dict(tmpdict)
-
 
     model.cuda().train()
 
