@@ -102,7 +102,8 @@ class SegmentationModule(nn.Module):
         self.body = body
         self.head = head
         #self.cls = nn.Conv2d(head_channels, classes, 1)
-        self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer 
+        self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
+        self.out_vector=nn.Linear(4096,5)
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -124,30 +125,13 @@ class SegmentationModule(nn.Module):
 
         #pdb.set_trace()
 
-        sem_logits = self.cls(x_up)
+        sem_logits = self.out_vector(x_up)
 
         del x_up
         return sem_logits
 
     def forward(self, x, scales,img_name, do_flip=True):
-        out_size = x.shape[-2:]
-        fusion = self.fusion_cls(x, self.classes)
-
-        for scale in scales:
-            # Main orientation
-            sem_logits = self._network(x, scale,img_name)
-            sem_logits = functional.upsample(sem_logits, size=out_size, mode="bilinear")
-            fusion.update(sem_logits)
-
-            # Flipped orientation
-            '''
-            if do_flip:
-                # Main orientation
-                sem_logits = self._network(flip(x, -1), scale)
-                sem_logits = functional.upsample(sem_logits, size=out_size, mode="bilinear")
-                fusion.update(flip(sem_logits, -1))
-            '''
-        return functional.softmax(sem_logits,dim=1),fusion.output() #previously "fusion.output()"
+        return self._network(x, 1,img_name)
 
 
 def main():
@@ -161,7 +145,7 @@ def main():
 
     # Create model by loading a snapshot
     body, head, cls_state = load_snapshot(args.snapshot)
-    model = SegmentationModule(body, head, 256, 10, args.fusion_mode) # this changes
+    model = SegmentationModule(body, head, 256, 5, args.fusion_mode) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
     #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
