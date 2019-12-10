@@ -38,6 +38,19 @@ parser.add_argument("output", metavar="OUT_DIR", type=str, help="Path to output 
 parser.add_argument("--world-size", metavar="WS", type=int, default=1, help="Number of GPUs")
 parser.add_argument("--rank", metavar="RANK", type=int, default=0, help="GPU id")
 
+def get_data(txt_rddf, image_folder):
+    dados_rddf = []
+    if('/' == image_folder[-1]):
+        image_folder = image_folder[:-1]
+    with open(txt_rddf, 'r') as f:
+        dados_rddf = [line.strip().split(" ") for line in f]
+
+#    for i in range(len(dados_rddf)):
+#        if(False == os.path.isfile(image_folder + '/' + dados_rddf[i][5] + '-r.png')):
+#            print(image_folder + '/' + dados_rddf[i][5] + '-r.png')
+
+    return  dados_rddf, image_folder
+
 
 def flip(x, dim):
     indices = [slice(None)] * x.dim()
@@ -183,6 +196,7 @@ def main():
     #     shuffle=True,
     # )
 
+    my_dataset, image_folder = get_model('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
     data_imgs = my_dataset[:, -1]
     data_target = my_dataset[:, :-1]
 
@@ -243,7 +257,7 @@ def main():
 
         for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
             
-            img, target = d_img.to(device), d_target.to(device)
+            img, target = cv2.imread(image_folder + '/' + d_img + '-r.png').to(device), d_target.to(device)
 
             optimizer.zero_grad()
             #pdb.set_trace()

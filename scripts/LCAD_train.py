@@ -12,7 +12,7 @@ def train_model(txt_rddf, image_folder):
         if(False == os.path.isfile(image_folder + '/' + dados_rddf[i][5] + '-r.png')):
             print(image_folder + '/' + dados_rddf[i][5] + '-r.png')
     
-    print(dados_rddf)
+    return  dados_rddf, image_folder
 
 #train_model("/dados/rddf_predict/te.txt", "/dados/log_png_1003")
 if(len(sys.argv)<3):
