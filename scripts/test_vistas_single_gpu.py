@@ -6,16 +6,20 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as functional
 from PIL import Image, ImagePalette
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch.autograd import Variable
 
 import models
-from dataset.dataset import SegmentationDataset, segmentation_collate
+from dataset.dataset import SegmentationDataset, TrainingSegmentationDataset, segmentation_collate
 from dataset.transform import SegmentationTransform
-from inplace_abn import InPlaceABN
-from modules import DeeplabV3
+from modules.bn import InPlaceABN
+from modules.deeplab import DeeplabV3
+import pdb
+import cv2
 
 parser = argparse.ArgumentParser(description="Testing script for the Vistas segmentation model")
 parser.add_argument("--scales", metavar="LIST", type=str, default="[0.7, 1, 1.2]", help="List of scales")
@@ -44,7 +48,7 @@ def flip(x, dim):
 
 class SegmentationModule(nn.Module):
     _IGNORE_INDEX = 255
-
+    
     class _MeanFusion:
         def __init__(self, x, classes):
             self.buffer = x.new_zeros(x.size(0), classes, x.size(2), x.size(3))
@@ -57,7 +61,7 @@ class SegmentationModule(nn.Module):
 
         def output(self):
             probs, cls = self.buffer.max(1)
-            return probs, cls
+            return cls #zprobs, cls
 
     class _VotingFusion:
         def __init__(self, x, classes):
@@ -97,7 +101,8 @@ class SegmentationModule(nn.Module):
         super(SegmentationModule, self).__init__()
         self.body = body
         self.head = head
-        self.cls = nn.Conv2d(head_channels, classes, 1)
+        #self.cls = nn.Conv2d(head_channels, classes, 1)
+        self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer 
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -107,7 +112,7 @@ class SegmentationModule(nn.Module):
         elif fusion_mode == "max":
             self.fusion_cls = SegmentationModule._MaxFusion
 
-    def _network(self, x, scale):
+    def _network(self, x, scale,img_name):
         if scale != 1:
             scaled_size = [round(s * scale) for s in x.shape[-2:]]
             x_up = functional.upsample(x, size=scaled_size, mode="bilinear")
@@ -116,29 +121,33 @@ class SegmentationModule(nn.Module):
 
         x_up = self.body(x_up)
         x_up = self.head(x_up)
+
+        #pdb.set_trace()
+
         sem_logits = self.cls(x_up)
 
         del x_up
         return sem_logits
 
-    def forward(self, x, scales, do_flip=True):
+    def forward(self, x, scales,img_name, do_flip=True):
         out_size = x.shape[-2:]
         fusion = self.fusion_cls(x, self.classes)
 
         for scale in scales:
             # Main orientation
-            sem_logits = self._network(x, scale)
+            sem_logits = self._network(x, scale,img_name)
             sem_logits = functional.upsample(sem_logits, size=out_size, mode="bilinear")
             fusion.update(sem_logits)
 
             # Flipped orientation
+            '''
             if do_flip:
                 # Main orientation
                 sem_logits = self._network(flip(x, -1), scale)
                 sem_logits = functional.upsample(sem_logits, size=out_size, mode="bilinear")
                 fusion.update(flip(sem_logits, -1))
-
-        return fusion.output()
+            '''
+        return functional.softmax(sem_logits,dim=1),fusion.output() #previously "fusion.output()"
 
 
 def main():
@@ -146,64 +155,183 @@ def main():
     args = parser.parse_args()
 
     # Torch stuff
-    torch.cuda.set_device(args.rank)
+    #torch.cuda.set_device(args.rank)
+    torch.cuda.set_device(0) # To get this to run on free RAAMAC GPU - Dominic
     cudnn.benchmark = True
 
     # Create model by loading a snapshot
     body, head, cls_state = load_snapshot(args.snapshot)
-    model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
-    model.cls.load_state_dict(cls_state)
-    model = model.cuda().eval()
-    print(model)
+    model = SegmentationModule(body, head, 256, 10, args.fusion_mode) # this changes
+                                                                      # number of classes
+                                                                      # in final model.cls layer
+    #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
+
+    #model.cls.load_state_dict(cls_state) 
+    #model = model.cuda().eval()
+    #print(model)
 
     # Create data loader
-    transformation = SegmentationTransform(
+    transformation = SegmentationTransform(     # Only applied to RGB
         2048,
-        (0.41738699, 0.45732192, 0.46886091),
+        (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
         (0.25685097, 0.26509955, 0.29067996),
     )
     dataset = SegmentationDataset(args.data, transformation)
     data_loader = DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=2,
         pin_memory=True,
-        sampler=DistributedSampler(dataset, args.world_size, args.rank),
-        num_workers=2,
+        sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
+        num_workers=1,
         collate_fn=segmentation_collate,
         shuffle=False
     )
 
+    training_dataset = TrainingSegmentationDataset('../RGBrunway',
+                                                   transformation,
+                                                   '../traininglabels')
+    data_train_loader = DataLoader(
+        training_dataset,
+        batch_size=2,
+        pin_memory=True,
+        num_workers=0,
+        collate_fn=segmentation_collate,
+        shuffle=True,
+    )
+
+
+    ####################
+    #   TRAIN
+    ####################
+
+    
+    
+    # Run fine-tuning (of modified class layers)   
+    for p in model.body.parameters():
+        p.requires_grad = False
+    for q in model.head.parameters():
+        q.requires_grad = False
+    for q in model.cls.parameters():
+        q.requires_grad = True
+    
+    #no_epochs = 50
+    LR = 1e-5
+    momentum = 0.98
+    epochs = 200
+
+    
+    data = torch.load('ckpoint_399_SGDwithLRdecay_1e-05.pt')
+    tmpdict = {'weight' : data['cls.weight'], 
+               'bias': data['cls.bias']}
+    model.cls.load_state_dict(tmpdict)
+
+
+    model.cuda().train()
+
+
+    #pdb.set_trace()
+
+    # Am definitely training on the right parameters.
+
+    #optimizer = optim.SGD(filter(lambda x: x.requires_grad, model.parameters()),
+    #                    lr=LR,momentum = momentum) 
+
+    optimizer = optim.Adam(filter(lambda x: x.requires_grad, model.parameters()),
+                        lr=LR)   
+    #n
+
+    oname = 'Adam'
+    
+    device = torch.device("cuda:0")
+    scales = eval(args.scales)
+    lossfunction = nn.CrossEntropyLoss().cuda()
+    #pdb.set_trace()
+
+    logforloss = open('lossfunction.txt','a')
+
+    for epoch in range(epochs):
+
+        #if epoch == 200:
+        #    LR *= 0.1
+
+        if epoch == 100:
+            LR *= 0.1
+
+        for batch_i, rec in enumerate(data_train_loader):
+            
+            img, target = rec["img"].to(device), rec["target"].to(device)
+    
+            # Below line and all usage of 'img_name' is legacy code
+            img_name = rec["meta"][0]["idx"]
+
+            optimizer.zero_grad()
+            #pdb.set_trace()
+            
+            probs,preds = model(img,scales,img_name,args.flip)
+                 
+            loss = lossfunction(probs.float(),target.long())
+            loss.backward()
+            optimizer.step()
+
+            #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
+            del preds, target, img,probs
+            logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    0 , len(data_train_loader.dataset),
+                    100. * batch_i / len(data_train_loader), loss.item())
+            print(logstring)
+            logforloss.write(logstring + '\n') 
+    pdb.set_trace()
+    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
+    logforloss.close()
+    
+    
+    #################
+    #   TEST
+    #################
+    '''
+    # Load checkpoint
+    data = torch.load('ckpoint_399_AdamwithLRdecay_1e-05.pt')
+    
+    tmpdict = {'weight' : data['cls.weight'], 
+               'bias': data['cls.bias']}
+    model.cls.load_state_dict(tmpdict)
+    #pdb.set_trace()
+    #model.cls.load_state_dict(data["state_dict"]["cls"])
+    #modle.cls.weight = data([''])
+    model.cuda().eval()
+    
     # Run testing
     scales = eval(args.scales)
-    with torch.no_grad():
+    with torch.no_grad(): # eval script
+        
         for batch_i, rec in enumerate(data_loader):
+            
             print("Testing batch [{:3d}/{:3d}]".format(batch_i + 1, len(data_loader)))
-
             img = rec["img"].cuda(non_blocking=True)
-            probs, preds = model(img, scales, args.flip)
-
+            img_name = rec["meta"][0]["idx"] # Needs num_replicas in DistributedSampler to be 1 so batch
+                                             # (true batch size) = 1
+            probs, preds = model(img, scales,img_name, args.flip)
             for i, (prob, pred) in enumerate(zip(torch.unbind(probs, dim=0), torch.unbind(preds, dim=0))):
                 out_size = rec["meta"][i]["size"]
                 img_name = rec["meta"][i]["idx"]
-
                 # Save prediction
                 prob = prob.cpu()
                 pred = pred.cpu()
+                #pdb.set_trace()
                 pred_img = get_pred_image(pred, out_size, args.output_mode == "palette")
                 pred_img.save(path.join(args.output, img_name + ".png"))
-
                 # Optionally save probabilities
                 if args.output_mode == "prob":
                     prob_img = get_prob_image(prob, out_size)
                     prob_img.save(path.join(args.output, img_name + "_prob.png"))
-
+    '''
 
 def load_snapshot(snapshot_file):
     """Load a training snapshot"""
     print("--- Loading model from snapshot")
 
     # Create network
-    norm_act = partial(InPlaceABN, activation="leaky_relu", activation_param=.01)
+    norm_act = partial(InPlaceABN, activation="leaky_relu", slope=.01)
     body = models.__dict__["net_wider_resnet38_a2"](norm_act=norm_act, dilation=(1, 2, 4, 4))
     head = DeeplabV3(4096, 256, 256, norm_act=norm_act, pooling_size=(84, 84))
 
@@ -213,6 +341,18 @@ def load_snapshot(snapshot_file):
     head.load_state_dict(data["state_dict"]["head"])
 
     return body, head, data["state_dict"]["cls"]
+
+
+label_names = ["Bird", "Ground Animal", "Curb", "Fence", "Guard Rail", "Barrier", "Wall", "Bike Lane",
+               "Crosswalk - Plain", "Curb Cut", "Parking", "Pedestrian Area", "Rail Track", "Road",
+               "Service Lane", "Sidewalk", "Bridge", "Building", "Tunnel", "Person", "Bicyclist",
+               "Motorcyclist", "Other Rider", "Lane Marking - Crosswalk", "Lane Marking - General",
+               "Mountain", "Sand", "Sky", "Snow", "Terrain", "Vegetation", "Water", "Banner", "Bench", 
+               "Bike Rack", "Billboard", "Catch Basin", "CCTV Camera", "Fire Hydrant", "Junction Box",
+               "Mailbox", "Manhole", "Phone Booth", "Pothole", "Street Light", "Pole", "Traffic Sign Frame", 
+               "Utility Pole", "Traffic Light", "Traffic Sign (Back)", "Traffic Sign (Front)", "Trash Can", 
+               "Bicycle", "Boat", "Bus", "Car", "Caravan", "Motorcycle", "On Rails", "Other Vehicle",
+               "Trailer", "Truck", "Wheeled Slow", "Car Mount", "Ego Vehicle"]
 
 
 _PALETTE = np.array([[165, 42, 42],
@@ -280,9 +420,24 @@ _PALETTE = np.array([[165, 42, 42],
                      [0, 0, 192],
                      [32, 32, 32],
                      [120, 10, 10]], dtype=np.uint8)
+
+
+img = np.zeros((700,300,3), np.uint8)
+font = cv2.FONT_HERSHEY_SIMPLEX
+for i, label in enumerate(label_names):
+    ystride = 10    
+    #pdb.set_trace()
+    cv2.putText(img,label,(0,i*ystride + 30), font, 0.5,np.ndarray.tolist(_PALETTE[i]),1,cv2.LINE_AA)
+
+cv2.imwrite("labelcolors.png",img)
+
+
 _PALETTE = np.concatenate([_PALETTE, np.zeros((256 - _PALETTE.shape[0], 3), dtype=np.uint8)], axis=0)
 _PALETTE = ImagePalette.ImagePalette(
     palette=list(_PALETTE[:, 0]) + list(_PALETTE[:, 1]) + list(_PALETTE[:, 2]), mode="RGB")
+
+
+
 
 
 def get_pred_image(tensor, out_size, with_palette):
@@ -290,6 +445,7 @@ def get_pred_image(tensor, out_size, with_palette):
     if with_palette:
         img = Image.fromarray(tensor.astype(np.uint8), mode="P")
         img.putpalette(_PALETTE)
+        
     else:
         img = Image.fromarray(tensor.astype(np.uint8), mode="L")
 
