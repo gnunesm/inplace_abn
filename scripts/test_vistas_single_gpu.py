@@ -102,7 +102,7 @@ class SegmentationModule(nn.Module):
         self.body = body
         self.head = head
         #self.cls = nn.Conv2d(head_channels, classes, 1)
-        self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
+        # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
         self.out_vector=nn.Linear(4096,5)
 
         self.classes = classes
@@ -113,7 +113,7 @@ class SegmentationModule(nn.Module):
         elif fusion_mode == "max":
             self.fusion_cls = SegmentationModule._MaxFusion
 
-    def _network(self, x, scale,img_name):
+    def _network(self, x, scale):
         if scale != 1:
             scaled_size = [round(s * scale) for s in x.shape[-2:]]
             x_up = functional.upsample(x, size=scaled_size, mode="bilinear")
@@ -130,8 +130,8 @@ class SegmentationModule(nn.Module):
         del x_up
         return sem_logits
 
-    def forward(self, x, scales,img_name, do_flip=True):
-        return self._network(x, 1,img_name)
+    def forward(self, x, scales, do_flip=True):
+        return self._network(x, 1)
 
 
 def main():
@@ -155,47 +155,47 @@ def main():
     #print(model)
 
     # Create data loader
-    transformation = SegmentationTransform(     # Only applied to RGB
-        2048,
-        (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
-        (0.25685097, 0.26509955, 0.29067996),
-    )
-    dataset = SegmentationDataset(args.data, transformation)
-    data_loader = DataLoader(
-        dataset,
-        batch_size=2,
-        pin_memory=True,
-        sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
-        num_workers=1,
-        collate_fn=segmentation_collate,
-        shuffle=False
-    )
+    # transformation = SegmentationTransform(     # Only applied to RGB
+    #     2048,
+    #     (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
+    #     (0.25685097, 0.26509955, 0.29067996),
+    # )
+    # dataset = SegmentationDataset(args.data, transformation)
+    # data_loader = DataLoader(
+    #     dataset,
+    #     batch_size=2,
+    #     pin_memory=True,
+    #     sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
+    #     num_workers=1,
+    #     collate_fn=segmentation_collate,
+    #     shuffle=False
+    # )
 
-    training_dataset = TrainingSegmentationDataset('../RGBrunway',
-                                                   transformation,
-                                                   '../traininglabels')
-    data_train_loader = DataLoader(
-        training_dataset,
-        batch_size=2,
-        pin_memory=True,
-        num_workers=0,
-        collate_fn=segmentation_collate,
-        shuffle=True,
-    )
+    # training_dataset = TrainingSegmentationDataset('../RGBrunway',
+    #                                                transformation,
+    #                                                '../traininglabels')
+    # data_train_loader = DataLoader(
+    #     training_dataset,
+    #     batch_size=2,
+    #     pin_memory=True,
+    #     num_workers=0,
+    #     collate_fn=segmentation_collate,
+    #     shuffle=True,
+    # )
 
+    data_imgs = my_dataset[:, -1]
+    data_target = my_dataset[:, :-1]
 
     ####################
     #   TRAIN
     ####################
-
-    
     
     # Run fine-tuning (of modified class layers)   
     for p in model.body.parameters():
         p.requires_grad = False
     for q in model.head.parameters():
         q.requires_grad = False
-    for q in model.cls.parameters():
+    for q in model.out_vector.parameters():
         q.requires_grad = True
     
     #no_epochs = 50
@@ -228,7 +228,7 @@ def main():
     
     device = torch.device("cuda:0")
     scales = eval(args.scales)
-    lossfunction = nn.CrossEntropyLoss().cuda()
+    lossfunction = nn.L1Loss().cuda()
     #pdb.set_trace()
 
     logforloss = open('lossfunction.txt','a')
@@ -241,27 +241,24 @@ def main():
         if epoch == 100:
             LR *= 0.1
 
-        for batch_i, rec in enumerate(data_train_loader):
+        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
             
-            img, target = rec["img"].to(device), rec["target"].to(device)
-    
-            # Below line and all usage of 'img_name' is legacy code
-            img_name = rec["meta"][0]["idx"]
+            img, target = d_img.to(device), d_target.to(device)
 
             optimizer.zero_grad()
             #pdb.set_trace()
             
-            probs,preds = model(img,scales,img_name,args.flip)
+            preds = model(img,scales, args.flip)
                  
-            loss = lossfunction(probs.float(),target.long())
+            loss = lossfunction(preds.float(),target.long())
             loss.backward()
             optimizer.step()
 
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
-            del preds, target, img,probs
+            del preds, target, img
             logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    0 , len(data_train_loader.dataset),
-                    100. * batch_i / len(data_train_loader), loss.item())
+                    0 , len(my_dataset),
+                    100. * batch_i / len(my_dataset), loss.item())
             print(logstring)
             logforloss.write(logstring + '\n') 
     pdb.set_trace()
@@ -406,19 +403,19 @@ _PALETTE = np.array([[165, 42, 42],
                      [120, 10, 10]], dtype=np.uint8)
 
 
-img = np.zeros((700,300,3), np.uint8)
-font = cv2.FONT_HERSHEY_SIMPLEX
-for i, label in enumerate(label_names):
-    ystride = 10    
-    #pdb.set_trace()
-    cv2.putText(img,label,(0,i*ystride + 30), font, 0.5,np.ndarray.tolist(_PALETTE[i]),1,cv2.LINE_AA)
+# img = np.zeros((700,300,3), np.uint8)
+# font = cv2.FONT_HERSHEY_SIMPLEX
+# for i, label in enumerate(label_names):
+#     ystride = 10    
+#     #pdb.set_trace()
+#     cv2.putText(img,label,(0,i*ystride + 30), font, 0.5,np.ndarray.tolist(_PALETTE[i]),1,cv2.LINE_AA)
 
-cv2.imwrite("labelcolors.png",img)
+# cv2.imwrite("labelcolors.png",img)
 
 
-_PALETTE = np.concatenate([_PALETTE, np.zeros((256 - _PALETTE.shape[0], 3), dtype=np.uint8)], axis=0)
-_PALETTE = ImagePalette.ImagePalette(
-    palette=list(_PALETTE[:, 0]) + list(_PALETTE[:, 1]) + list(_PALETTE[:, 2]), mode="RGB")
+# _PALETTE = np.concatenate([_PALETTE, np.zeros((256 - _PALETTE.shape[0], 3), dtype=np.uint8)], axis=0)
+# _PALETTE = ImagePalette.ImagePalette(
+#     palette=list(_PALETTE[:, 0]) + list(_PALETTE[:, 1]) + list(_PALETTE[:, 2]), mode="RGB")
 
 
 
