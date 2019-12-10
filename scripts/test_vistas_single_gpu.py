@@ -14,10 +14,11 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
 
 import models
-from dataset.dataset import SegmentationDataset, TrainingSegmentationDataset, segmentation_collate
+from dataset.dataset import SegmentationDataset#, TrainingSegmentationDataset, segmentation_collate
 from dataset.transform import SegmentationTransform
-from modules.bn import InPlaceABN
 from modules.deeplab import DeeplabV3
+#from modules.bn import InPlaceABN
+from inplace_abn import InPlaceABN
 import pdb
 import cv2
 
@@ -197,9 +198,12 @@ def main():
     # )
 
     my_dataset, image_folder = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
+    my_dataset, image_folder = np.array(my_dataset), image_folder
     data_imgs = my_dataset[:, -1]
+#    print(data_imgs)
     data_target = my_dataset[:, :-1]
-
+    data_target = data_target.astype(np.float)
+#    print(data_target)
     ####################
     #   TRAIN
     ####################
@@ -249,13 +253,17 @@ def main():
             LR *= 0.1
 
         for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+#            print(image_folder + '/' + str(d_img) + '-r.png')
+            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+            # normalize
+#            image_temp = np.asarray(image_temp)/255
             
-            img, target = cv2.imread(image_folder + '/' + d_img + '-r.png').to(device), d_target.to(device)
+            img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
 
             optimizer.zero_grad()
             #pdb.set_trace()
             
-            preds = model(img,scales, args.flip)
+            preds = model(img, scales, args.flip)
                  
             loss = lossfunction(preds.float(),target.long())
             loss.backward()
@@ -319,7 +327,8 @@ def load_snapshot(snapshot_file):
     print("--- Loading model from snapshot")
 
     # Create network
-    norm_act = partial(InPlaceABN, activation="leaky_relu", slope=.01)
+#    norm_act = partial(InPlaceABN, activation="leaky_relu", slope=.01)
+    norm_act = partial(InPlaceABN, activation="leaky_relu", activation_param=.01)
     body = models.__dict__["net_wider_resnet38_a2"](norm_act=norm_act, dilation=(1, 2, 4, 4))
     head = DeeplabV3(4096, 256, 256, norm_act=norm_act, pooling_size=(84, 84))
 
