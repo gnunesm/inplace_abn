@@ -100,25 +100,14 @@ def main():
         model = SingleGPU(model)
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+    criterion = nn.L1Loss().cuda()
     optimizer, scheduler = utils.create_optimizer(conf["optimizer"], model)
 
-    # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            logger.info("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            best_prec1 = checkpoint['best_prec1']
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            logger.info("=> loaded checkpoint '{}' (epoch {})"
-                        .format(args.resume, checkpoint['epoch']))
-        else:
-            logger.warning("=> no checkpoint found at '{}'".format(args.resume))
-    else:
-        init_weights(model)
-        args.start_epoch = 0
+    data = torch.load(args.resume)
+    model.load_state_dict(data["state_dict"]["body"])
+
+    for param in model.parameters():
+        param.requires_grad = False
 
     cudnn.benchmark = True
 
