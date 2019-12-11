@@ -118,7 +118,7 @@ class SegmentationModule(nn.Module):
         self.head = head
         #self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
-        self.out_vector=nn.Linear(80, 5)
+        self.out_vector=nn.Linear(1228800, 5)
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -140,6 +140,7 @@ class SegmentationModule(nn.Module):
 
         #pdb.set_trace()
 
+        x_up = x_up.reshape(x_up.size(0), -1)
         sem_logits = self.out_vector(x_up)
 
         del x_up
@@ -268,9 +269,9 @@ def main():
             loss = lossfunction(preds.float(),target.float())
 
             print(d_img)
-            #print(eval(preds), '----', target)
-            print(target.shape)
-            print(preds.shape)
+            print(preds.float(), '----', target.float())
+            #print(target.shape)
+            #print(preds.shape)
 
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
