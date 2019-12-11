@@ -227,18 +227,7 @@ def main():
     ####################
     #   TRAIN
     ####################
-    
-    # Run fine-tuning (of modified class layers)   
-    for p in model.body.parameters():
-        p.requires_grad = False
-    for q in model.head.parameters():
-        q.requires_grad = False
-    for q in model.out_vector.parameters():
-        q.requires_grad = False
-    
-    #no_epochs = 50
-    LR = 1e-5
-    momentum = 0.98
+
     epochs = 1
 
     model.cuda().eval()
@@ -246,16 +235,7 @@ def main():
 
     #pdb.set_trace()
 
-    # Am definitely training on the right parameters.
-
-    #optimizer = optim.SGD(filter(lambda x: x.requires_grad, model.parameters()),
-    #                    lr=LR,momentum = momentum) 
-
-    optimizer = optim.Adam(filter(lambda x: x.requires_grad, model.parameters()),
-                        lr=LR)   
-    #n
-
-    oname = 'Adam'
+    # Am definitely training on the right parameters
     
     device = torch.device("cuda:0")
     scales = eval(args.scales)
@@ -279,7 +259,6 @@ def main():
             image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
             img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
             # img = rec["img"].to(device)
-            optimizer.zero_grad()
             #pdb.set_trace()
             
             preds = model(img, scales, args.flip)
