@@ -234,14 +234,14 @@ def main():
     for q in model.head.parameters():
         q.requires_grad = False
     for q in model.out_vector.parameters():
-        q.requires_grad = True
+        q.requires_grad = False
     
     #no_epochs = 50
     LR = 1e-5
     momentum = 0.98
     epochs = 1
 
-    model.cuda().train()
+    model.cuda().eval()
 
 
     #pdb.set_trace()
@@ -261,8 +261,6 @@ def main():
     scales = eval(args.scales)
     lossfunction = nn.L1Loss().cuda()
     #pdb.set_trace()
-
-    logforloss = open('lossfunction.txt','a')
 
     for epoch in range(epochs):
 
@@ -287,19 +285,12 @@ def main():
             preds = model(img, scales, args.flip)
 
             loss = lossfunction(preds.float(),target.float())
-            loss.backward()
-            optimizer.step()
+
+            print(d_img)
+            print(preds, '----', target)
 
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
-            logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch , len(my_dataset),
-                    100. * batch_i / len(my_dataset), loss.item())
-            print(logstring)
-            logforloss.write(logstring + '\n') 
-    #pdb.set_trace()
-    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
-    logforloss.close()
     
     
     #################
