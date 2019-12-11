@@ -137,6 +137,7 @@ class SegmentationModule(nn.Module):
 
         x_up = self.body(x_up)
         x_up = self.head(x_up)
+        print(x_up)
 
         #pdb.set_trace()
 
@@ -245,36 +246,39 @@ def main():
     lossfunction = nn.L1Loss().cuda()
     #pdb.set_trace()
 
-    for epoch in range(epochs):
+    with torch.no_grad():
 
-        #if epoch == 200:
-        #    LR *= 0.1
+        for epoch in range(epochs):
 
-        if epoch == 100:
-            LR *= 0.1
+            #if epoch == 200:
+            #    LR *= 0.1
 
-        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
-            print(image_folder + '/' + str(d_img) + '-r.png')
-        # for batch_i, rec in enumerate(data_loader):
-            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
-            # normalize
-        #    image_temp = np.asarray(image_temp)/255
-            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
-            # img = rec["img"].to(device)
-            #pdb.set_trace()
-            
-            preds = model(img, scales, args.flip)
+            if epoch == 100:
+                LR *= 0.1
 
-            loss = lossfunction(preds.float(),target.float())
+            for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+                print(image_folder + '/' + str(d_img) + '-r.png')
+            # for batch_i, rec in enumerate(data_loader):
+                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+                # normalize
+            #    image_temp = np.asarray(image_temp)/255
+                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
+                # img = rec["img"].to(device)
+                #pdb.set_trace()
+                
+                preds = model(img, scales, args.flip)
+                print(preds)
 
-            print(d_img)
-            print(preds.float(), '----', target.float())
-            #print(target.shape)
-            #print(preds.shape)
+                loss = lossfunction(preds.float(),target.float())
 
-            #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
-            del preds, target, img
+                #print(d_img)
+                #print(preds.float(), '----', target.float())
+                #print(target.shape)
+                #print(preds.shape)
+
+                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
+                del preds, target, img
     
     
     #################
