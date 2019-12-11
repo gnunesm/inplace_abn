@@ -118,7 +118,7 @@ class SegmentationModule(nn.Module):
         self.head = head
         #self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
-        self.out_vector=nn.Linear(4096,5)
+        self.out_vector=nn.Linear(80, 5)
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -198,7 +198,7 @@ def main():
     #     shuffle=True,
     # )
 
-    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
+    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/teste', '/dados/log_png_1003/')
     my_dataset = np.array(my_dataset)
     data_imgs = my_dataset[:, -1]
 #    print(data_imgs)
@@ -239,7 +239,7 @@ def main():
     #no_epochs = 50
     LR = 1e-5
     momentum = 0.98
-    epochs = 200
+    epochs = 1
 
     model.cuda().train()
 
@@ -278,8 +278,8 @@ def main():
             image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
             # normalize
         #    image_temp = np.asarray(image_temp)/255
-            image_temp = np.expand_dims(image_temp, axis=0)
-            img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
+            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
             # img = rec["img"].to(device)
             optimizer.zero_grad()
             #pdb.set_trace()
@@ -288,18 +288,18 @@ def main():
 
             target = torch.from_numpy(data_target[batch_i]).to(device)
 
-            loss = lossfunction(preds.float(),target.long())
+            loss = lossfunction(preds.float(),target.float())
             loss.backward()
             optimizer.step()
 
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
             logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    0 , len(my_dataset),
+                    epoch , len(my_dataset),
                     100. * batch_i / len(my_dataset), loss.item())
             print(logstring)
             logforloss.write(logstring + '\n') 
-    pdb.set_trace()
+    #pdb.set_trace()
     torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
     logforloss.close()
     
