@@ -14,7 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
 
 import models
-from dataset.dataset import SegmentationDataset#, TrainingSegmentationDataset, segmentation_collate
+from dataset.dataset import SegmentationDataset, segmentation_collate#, TrainingSegmentationDataset
 from dataset.transform import SegmentationTransform
 from modules.deeplab import DeeplabV3
 #from modules.bn import InPlaceABN
@@ -45,12 +45,13 @@ def get_data(txt_rddf, image_folder):
         image_folder = image_folder[:-1]
     with open(txt_rddf, 'r') as f:
         dados_rddf = [line.strip().split(" ") for line in f]
+    images_path = []
+    for i in range(len(dados_rddf)):
+        images_path.append(image_folder + '/' + dados_rddf[i][5] + '-r.png')
 
-#    for i in range(len(dados_rddf)):
-#        if(False == os.path.isfile(image_folder + '/' + dados_rddf[i][5] + '-r.png')):
 #            print(image_folder + '/' + dados_rddf[i][5] + '-r.png')
 
-    return  dados_rddf, image_folder
+    return  dados_rddf, image_folder, images_path
 
 
 def flip(x, dim):
@@ -168,22 +169,22 @@ def main():
     #model = model.cuda().eval()
     #print(model)
 
-    # Create data loader
-    # transformation = SegmentationTransform(     # Only applied to RGB
-    #     2048,
-    #     (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
-    #     (0.25685097, 0.26509955, 0.29067996),
-    # )
-    # dataset = SegmentationDataset(args.data, transformation)
-    # data_loader = DataLoader(
-    #     dataset,
-    #     batch_size=2,
-    #     pin_memory=True,
-    #     sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
-    #     num_workers=1,
-    #     collate_fn=segmentation_collate,
-    #     shuffle=False
-    # )
+#     Create data loader
+#     transformation = SegmentationTransform(     # Only applied to RGB
+#         2048,
+#         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
+#         (0.25685097, 0.26509955, 0.29067996),
+#     )
+#     dataset = SegmentationDataset(args.data, transformation)
+#     data_loader = DataLoader(
+#         dataset,
+#         batch_size=1,
+#         pin_memory=True,
+#         sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
+#         num_workers=1,
+#         collate_fn=segmentation_collate,
+#         shuffle=False
+#     )
 
     # training_dataset = TrainingSegmentationDataset('../RGBrunway',
     #                                                transformation,
@@ -197,12 +198,31 @@ def main():
     #     shuffle=True,
     # )
 
-    my_dataset, image_folder = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
-    my_dataset, image_folder = np.array(my_dataset), image_folder
+    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/')
+    my_dataset = np.array(my_dataset)
     data_imgs = my_dataset[:, -1]
 #    print(data_imgs)
     data_target = my_dataset[:, :-1]
     data_target = data_target.astype(np.float)
+
+#     Create data loader
+    transformation = SegmentationTransform(     # Only applied to RGB
+        2048,
+        (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
+        (0.25685097, 0.26509955, 0.29067996),
+    )
+    dataset = SegmentationDataset(args.data, transformation)
+    data_loader = DataLoader(
+        dataset,
+        batch_size=1,
+        pin_memory=True,
+        sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
+        num_workers=1,
+        collate_fn=segmentation_collate,
+        shuffle=False
+    )
+
+
 #    print(data_target)
     ####################
     #   TRAIN
@@ -252,19 +272,22 @@ def main():
         if epoch == 100:
             LR *= 0.1
 
-        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+#        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
 #            print(image_folder + '/' + str(d_img) + '-r.png')
-            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+        for batch_i, rec in enumerate(data_loader):
+#            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
             # normalize
 #            image_temp = np.asarray(image_temp)/255
             
-            img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
-
+ #           img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
+            img = rec["img"].to(device)
             optimizer.zero_grad()
             #pdb.set_trace()
             
             preds = model(img, scales, args.flip)
-                 
+
+            target = torch.from_numpy(data_target[batch_i]).to(device)
+
             loss = lossfunction(preds.float(),target.long())
             loss.backward()
             optimizer.step()
