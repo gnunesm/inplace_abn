@@ -163,6 +163,8 @@ def main():
     model = SegmentationModule(body, head, 256, 5, args.fusion_mode) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
+    data = torch.load('ckpoint_0_SGDwithLRdecay+400_1e-05.pt')
+    model.load_state_dict(data)
     #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
 
     #model.cls.load_state_dict(cls_state) 
@@ -232,7 +234,7 @@ def main():
 
     model.cuda().eval()
 
-
+    print(model)
     #pdb.set_trace()
 
     # Am definitely training on the right parameters
@@ -266,7 +268,9 @@ def main():
             loss = lossfunction(preds.float(),target.float())
 
             print(d_img)
-            print(preds, '----', target)
+            #print(eval(preds), '----', target)
+            print(target.shape)
+            print(preds.shape)
 
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
