@@ -211,16 +211,16 @@ def main():
         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
         (0.25685097, 0.26509955, 0.29067996),
     )
-    dataset = SegmentationDataset(args.data, transformation)
-    data_loader = DataLoader(
-        dataset,
-        batch_size=1,
-        pin_memory=True,
-        sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
-        num_workers=1,
-        collate_fn=segmentation_collate,
-        shuffle=False
-    )
+    # dataset = SegmentationDataset(args.data, transformation)
+    # data_loader = DataLoader(
+    #     dataset,
+    #     batch_size=1,
+    #     pin_memory=True,
+    #     sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
+    #     num_workers=1,
+    #     collate_fn=segmentation_collate,
+    #     shuffle=False
+    # )
 
 
 #    print(data_target)
@@ -272,15 +272,15 @@ def main():
         if epoch == 100:
             LR *= 0.1
 
-#        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
-#            print(image_folder + '/' + str(d_img) + '-r.png')
-        for batch_i, rec in enumerate(data_loader):
-#            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+       for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+            print(image_folder + '/' + str(d_img) + '-r.png')
+        # for batch_i, rec in enumerate(data_loader):
+            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
             # normalize
-#            image_temp = np.asarray(image_temp)/255
-            
- #           img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
-            img = rec["img"].to(device)
+        #    image_temp = np.asarray(image_temp)/255
+            image_temp = np.expand_dims(image_temp, axis=0)
+            img, target = torch.from_numpy(image_temp).to(device), torch.from_numpy(d_target).to(device)
+            # img = rec["img"].to(device)
             optimizer.zero_grad()
             #pdb.set_trace()
             
