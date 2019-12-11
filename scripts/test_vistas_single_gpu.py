@@ -272,7 +272,7 @@ def main():
         if epoch == 100:
             LR *= 0.1
 
-       for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+        for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
             print(image_folder + '/' + str(d_img) + '-r.png')
         # for batch_i, rec in enumerate(data_loader):
             image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
