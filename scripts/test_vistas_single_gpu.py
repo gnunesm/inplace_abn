@@ -119,6 +119,10 @@ class SegmentationModule(nn.Module):
         #self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
         self.out_vector=nn.Linear(1228800, 5)
+#        self.out_vector=nn.Sequential(
+#            nn.Linear(1228800, 50),
+#            nn.Linear(50 , 5)
+#        )
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -199,7 +203,7 @@ def main():
     #     shuffle=True,
     # )
 
-    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/teste', '/dados/log_png_1003/')
+    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/teste1', '/dados/log_png_1003/')
     my_dataset = np.array(my_dataset)
     data_imgs = my_dataset[:, -1]
 #    print(data_imgs)
@@ -208,7 +212,7 @@ def main():
 
 #     Create data loader
     transformation = SegmentationTransform(     # Only applied to RGB
-        2048,
+        640,
         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
         (0.25685097, 0.26509955, 0.29067996),
     )
@@ -238,9 +242,9 @@ def main():
         q.requires_grad = True
     
     #no_epochs = 50
-    LR = 1e-5
+    LR = 1e-7
     momentum = 0.98
-    epochs = 1
+    epochs = 200
 
     model.cuda().train()
 
@@ -270,28 +274,34 @@ def main():
         #if epoch == 200:
         #    LR *= 0.1
 
-        if epoch == 100:
+        if epoch % 20 == 0:
             LR *= 0.1
+#        if epoch == 100:
+#           LR *= 0.1
 
         for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
             print(image_folder + '/' + str(d_img) + '-r.png')
         # for batch_i, rec in enumerate(data_loader):
-            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+#            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+            image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
             # normalize
-            image_temp = image_temp/255.0
-            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
+#            image_temp = image_temp/255.0
+            img = transformation(image_temp)
+#            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+#            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
             # img = rec["img"].to(device)
+            target = torch.from_numpy(d_target).float().to(device)
             optimizer.zero_grad()
             #pdb.set_trace()
-            
+            img  = img.unsqueeze(0).to(device)
             preds = model(img, scales, args.flip)
 
             loss = lossfunction(preds.float(),target.float())
+#            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            print(preds)
+            print("Desejado: ",target , "\nPrevisto: " , preds, "\n")
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
             logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -300,7 +310,7 @@ def main():
             print(logstring)
             logforloss.write(logstring + '\n') 
     #pdb.set_trace()
-    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
+    #torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
     logforloss.close()
     
     
@@ -317,42 +327,45 @@ def main():
     #pdb.set_trace()
     #model.cls.load_state_dict(data["state_dict"]["cls"])
     #modle.cls.weight = data([''])
-#    model.cuda().eval()
-    
-    with torch.no_grad():
-
-        for epoch in range(epochs):
-
-            #if epoch == 200:
-            #    LR *= 0.1
-
-            if epoch == 100:
-                LR *= 0.1
-
-            for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
-                print(image_folder + '/' + str(d_img) + '-r.png')
-            # for batch_i, rec in enumerate(data_loader):
-                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
-                # normalize
-                image_temp = np.asarray(image_temp)/255
-                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
-                # img = rec["img"].to(device)
-                #pdb.set_trace()
-                
-                preds = model(img, scales, args.flip)
-                print(preds)
-
-                loss = lossfunction(preds.float(),target.float())
-
-                #print(d_img)
-                #print(preds.float(), '----', target.float())
-                #print(target.shape)
-                #print(preds.shape)
-
-                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
-                del preds, target, img
-    
+##    model.cuda().eval()
+#    
+#    with torch.no_grad():
+#
+#        for epoch in range(epochs):
+#
+#            #if epoch == 200:
+#            #    LR *= 0.1
+#
+#            if epoch == 100:
+#                LR *= 0.1
+#
+#            for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+#                print(image_folder + '/' + str(d_img) + '-r.png')
+#                image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
+#            # normalize
+##            image_temp = image_temp/255.0
+#                img = transformation(image_temp)
+##            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+##            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
+#            # img = rec["img"].to(device)
+#                target = torch.from_numpy(d_target).float().to(device)
+#                optimizer.zero_grad()
+#            #pdb.set_trace()
+#                img  = img.unsqueeze(0).to(device)
+#                
+#                preds = model(img, scales, args.flip)
+#                print(preds)
+#
+#                loss = lossfunction(preds.float(),target.float())
+#
+#                #print(d_img)
+#                #print(preds.float(), '----', target.float())
+#                #print(target.shape)
+#                #print(preds.shape)
+#
+#                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
+#                del preds, target, img
+#    
 
 def load_snapshot(snapshot_file):
     """Load a training snapshot"""

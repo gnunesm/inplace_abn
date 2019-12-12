@@ -165,12 +165,13 @@ def main():
     model = SegmentationModule(body, head, 256, 5, args.fusion_mode) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
-    data = torch.load('ckpoint_0_SGDwithLRdecay+400_1e-05.pt')
+#    data = torch.load('ckpoint_0_SGDwithLRdecay+400_1e-05.pt')
+    data = torch.load('ckpoint_199_SGDwithLRdecay+400_1e-07.pt')
     model.load_state_dict(data)
     #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
 
     #model.cls.load_state_dict(cls_state) 
-    #model = model.cuda().eval()
+#    model = model.cuda().eval()
     #print(model)
 
 #     Create data loader
@@ -211,7 +212,7 @@ def main():
 
 #     Create data loader
     transformation = SegmentationTransform(     # Only applied to RGB
-        2048,
+        640,
         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
         (0.25685097, 0.26509955, 0.29067996),
     )
@@ -234,7 +235,7 @@ def main():
 
     epochs = 1
 
-    model.cuda().train()
+    model = model.cuda().eval()
 
 #    print(model)
     #pdb.set_trace()
@@ -259,11 +260,17 @@ def main():
             for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
                 print(image_folder + '/' + str(d_img) + '-r.png')
             # for batch_i, rec in enumerate(data_loader):
-                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+#                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
                 # normalize
-                image_temp = image_temp/255.0
-                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
+#                image_temp = image_temp/255.0
+#                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+                image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
+                
+                img = transformation(image_temp)
+                target = torch.from_numpy(d_target).float().to(device)
+                img  = img.unsqueeze(0).to(device)
+
+#                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
                 # img = rec["img"].to(device)
                 #pdb.set_trace()
                 
