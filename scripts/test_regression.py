@@ -234,16 +234,16 @@ def main():
 
     epochs = 1
 
-    model.cuda().eval()
+    model.cuda().train()
 
-    print(model)
+#    print(model)
     #pdb.set_trace()
 
     # Am definitely training on the right parameters
     
     device = torch.device("cuda:0")
     scales = eval(args.scales)
-    lossfunction = nn.L1Loss().cuda()
+    lossfunction = nn.MSELoss().cuda()
     #pdb.set_trace()
 
     with torch.no_grad():
@@ -261,7 +261,7 @@ def main():
             # for batch_i, rec in enumerate(data_loader):
                 image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
                 # normalize
-            #    image_temp = np.asarray(image_temp)/255
+                image_temp = image_temp/255.0
                 image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
                 img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
                 # img = rec["img"].to(device)
