@@ -307,43 +307,52 @@ def main():
     #################
     #   TEST
     #################
-    '''
-    # Load checkpoint
-    data = torch.load('ckpoint_399_AdamwithLRdecay_1e-05.pt')
     
-    tmpdict = {'weight' : data['cls.weight'], 
-               'bias': data['cls.bias']}
-    model.cls.load_state_dict(tmpdict)
+    # Load checkpoint
+    # data = torch.load('ckpoint_399_AdamwithLRdecay_1e-05.pt')
+    
+    # tmpdict = {'weight' : data['cls.weight'], 
+    #            'bias': data['cls.bias']}
+    # model.cls.load_state_dict(tmpdict)
     #pdb.set_trace()
     #model.cls.load_state_dict(data["state_dict"]["cls"])
     #modle.cls.weight = data([''])
     model.cuda().eval()
     
-    # Run testing
-    scales = eval(args.scales)
-    with torch.no_grad(): # eval script
-        
-        for batch_i, rec in enumerate(data_loader):
-            
-            print("Testing batch [{:3d}/{:3d}]".format(batch_i + 1, len(data_loader)))
-            img = rec["img"].cuda(non_blocking=True)
-            img_name = rec["meta"][0]["idx"] # Needs num_replicas in DistributedSampler to be 1 so batch
-                                             # (true batch size) = 1
-            probs, preds = model(img, scales,img_name, args.flip)
-            for i, (prob, pred) in enumerate(zip(torch.unbind(probs, dim=0), torch.unbind(preds, dim=0))):
-                out_size = rec["meta"][i]["size"]
-                img_name = rec["meta"][i]["idx"]
-                # Save prediction
-                prob = prob.cpu()
-                pred = pred.cpu()
+    with torch.no_grad():
+
+        for epoch in range(epochs):
+
+            #if epoch == 200:
+            #    LR *= 0.1
+
+            if epoch == 100:
+                LR *= 0.1
+
+            for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
+                print(image_folder + '/' + str(d_img) + '-r.png')
+            # for batch_i, rec in enumerate(data_loader):
+                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
+                # normalize
+            #    image_temp = np.asarray(image_temp)/255
+                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
+                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
+                # img = rec["img"].to(device)
                 #pdb.set_trace()
-                pred_img = get_pred_image(pred, out_size, args.output_mode == "palette")
-                pred_img.save(path.join(args.output, img_name + ".png"))
-                # Optionally save probabilities
-                if args.output_mode == "prob":
-                    prob_img = get_prob_image(prob, out_size)
-                    prob_img.save(path.join(args.output, img_name + "_prob.png"))
-    '''
+                
+                preds = model(img, scales, args.flip)
+                print(preds)
+
+                loss = lossfunction(preds.float(),target.float())
+
+                #print(d_img)
+                #print(preds.float(), '----', target.float())
+                #print(target.shape)
+                #print(preds.shape)
+
+                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
+                del preds, target, img
+    
 
 def load_snapshot(snapshot_file):
     """Load a training snapshot"""
