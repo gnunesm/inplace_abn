@@ -246,7 +246,9 @@ def main():
     momentum = 0.98
     epochs = 200
 
-    model.cuda().train()
+    device = torch.device("cuda:0")
+    model.to(device)
+    model.train()
 
 
     #pdb.set_trace()
@@ -262,9 +264,8 @@ def main():
 
     oname = 'Adam'
     
-    device = torch.device("cuda:0")
     scales = eval(args.scales)
-    lossfunction = nn.MSELoss().cuda()
+    lossfunction = nn.MSELoss().to(device)
     #pdb.set_trace()
 
     logforloss = open('lossfunction.txt','a')
@@ -327,7 +328,7 @@ def main():
     #pdb.set_trace()
     #model.cls.load_state_dict(data["state_dict"]["cls"])
     #modle.cls.weight = data([''])
-##    model.cuda().eval()
+##    model.eval()
 #    
 #    with torch.no_grad():
 #
