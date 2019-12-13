@@ -235,14 +235,15 @@ def main():
 
     epochs = 1
 
-    model = model.cuda().eval()
+    device = torch.device("cuda:0")
+    model.to(device)
+    model = model.eval()
 
 #    print(model)
     #pdb.set_trace()
 
     # Am definitely training on the right parameters
     
-    device = torch.device("cuda:0")
     scales = eval(args.scales)
     lossfunction = nn.MSELoss().cuda()
     #pdb.set_trace()
