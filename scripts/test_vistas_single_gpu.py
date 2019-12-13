@@ -1,7 +1,7 @@
 import argparse
 from functools import partial
 from os import path
-
+import time
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
 
+import random
 import models
 from dataset.dataset import SegmentationDataset, segmentation_collate#, TrainingSegmentationDataset
 from dataset.transform import SegmentationTransform
@@ -39,7 +40,9 @@ parser.add_argument("output", metavar="OUT_DIR", type=str, help="Path to output 
 parser.add_argument("--world-size", metavar="WS", type=int, default=1, help="Number of GPUs")
 parser.add_argument("--rank", metavar="RANK", type=int, default=0, help="GPU id")
 
-def get_data(txt_rddf, image_folder):
+random.seed(42)
+
+def get_data(txt_rddf, image_folder, arg_random):
     dados_rddf = []
     if('/' == image_folder[-1]):
         image_folder = image_folder[:-1]
@@ -50,7 +53,11 @@ def get_data(txt_rddf, image_folder):
         images_path.append(image_folder + '/' + dados_rddf[i][5] + '-r.png')
 
 #            print(image_folder + '/' + dados_rddf[i][5] + '-r.png')
-
+    if(arg_random):
+        lista_temp = []
+        while(len(lista_temp) < 100):
+            lista_temp.append(dados_rddf[random.randint(0,len(dados_rddf))])
+        dados_rddf = lista_temp
     return  dados_rddf, image_folder, images_path
 
 
@@ -202,8 +209,9 @@ def main():
     #     collate_fn=segmentation_collate,
     #     shuffle=True,
     # )
+    arg_random = True
 
-    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/teste1', '/dados/log_png_1003/')
+    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/', arg_random)
     my_dataset = np.array(my_dataset)
     data_imgs = my_dataset[:, -1]
 #    print(data_imgs)
@@ -244,7 +252,7 @@ def main():
     #no_epochs = 50
     LR = 1e-7
     momentum = 0.98
-    epochs = 200
+    epochs = 100000
 
     model.cuda().train()
 
@@ -267,7 +275,7 @@ def main():
     lossfunction = nn.MSELoss().cuda()
     #pdb.set_trace()
 
-    logforloss = open('lossfunction.txt','a')
+    logforloss = open('lossfunction_'+ str(time.time()) +'.txt','a')
 
     for epoch in range(epochs):
 
@@ -310,7 +318,7 @@ def main():
             print(logstring)
             logforloss.write(logstring + '\n') 
     #pdb.set_trace()
-    #torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, 'SGDwithLRdecay+400',LR))
+    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, LR, time.time()))
     logforloss.close()
     
     
