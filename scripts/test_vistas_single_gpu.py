@@ -42,6 +42,13 @@ parser.add_argument("--rank", metavar="RANK", type=int, default=0, help="GPU id"
 
 random.seed(42)
 
+def save_preds(log_time, preds, img_timestamp):
+    f= open("preds_output_" +log_time+ ".txt","a+")
+    preds_array = preds[0].data.cpu().numpy()
+    for i in range(len(preds_array)):
+        f.write(str(preds_array[i]) +" " )
+    f.write(str(img_timestamp)+"\n")
+
 def get_data(txt_rddf, image_folder, arg_random):
     dados_rddf = []
     if('/' == image_folder[-1]):
@@ -123,21 +130,22 @@ class SegmentationModule(nn.Module):
         super(SegmentationModule, self).__init__()
         self.body = body
         self.head = head
-        #self.cls = nn.Conv2d(head_channels, classes, 1)
+#        self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
-        self.out_vector=nn.Linear(1228800, 5)
-#        self.out_vector=nn.Sequential(
-#            nn.Linear(1228800, 50),
+#        self.out_vector=nn.Linear(1228800, 5)
+        self.out_vector=nn.Sequential(
+#            nn.ReLU(),
+            nn.Linear(1228800, 5)
 #            nn.Linear(50 , 5)
-#        )
+        )
 
         self.classes = classes
-        if fusion_mode == "mean":
-            self.fusion_cls = SegmentationModule._MeanFusion
-        elif fusion_mode == "voting":
-            self.fusion_cls = SegmentationModule._VotingFusion
-        elif fusion_mode == "max":
-            self.fusion_cls = SegmentationModule._MaxFusion
+#        if fusion_mode == "mean":
+#            self.fusion_cls = SegmentationModule._MeanFusion
+#        elif fusion_mode == "voting":
+#            self.fusion_cls = SegmentationModule._VotingFusion
+#        elif fusion_mode == "max":
+#            self.fusion_cls = SegmentationModule._MaxFusion
 
     def _network(self, x, scale):
         if scale != 1:
@@ -248,11 +256,16 @@ def main():
         q.requires_grad = False
     for q in model.out_vector.parameters():
         q.requires_grad = True
-    
+
+#    for m in model.modules(): 
+#        if isinstance(m, InPlaceABN):
+#            m.affine = False
+
+
     #no_epochs = 50
     LR = 1e-7
     momentum = 0.98
-    epochs = 100000
+    epochs = 10
 
     device = torch.device("cuda:0")
     model.to(device)
@@ -275,8 +288,9 @@ def main():
     scales = eval(args.scales)
     lossfunction = nn.MSELoss().to(device)
     #pdb.set_trace()
-
-    logforloss = open('lossfunction_'+ str(time.time()) +'.txt','a')
+    
+    log_time = str(time.time()) 
+    logforloss = open('lossfunction_'+ log_time +'.txt','a')
 
     for epoch in range(epochs):
 
@@ -295,22 +309,30 @@ def main():
             image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
             # normalize
 #            image_temp = image_temp/255.0
+#            print("1: ", image_temp.getdata()[0])
+#            image_temp = Image.eval(image_temp, (lambda x: x/255.0))
+#            print("2:  ",image_temp.getdata()[0])
             img = transformation(image_temp)
 #            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
 #            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
             # img = rec["img"].to(device)
             target = torch.from_numpy(d_target).float().to(device)
-            optimizer.zero_grad()
             #pdb.set_trace()
             img  = img.unsqueeze(0).to(device)
             preds = model(img, scales, args.flip)
-
             loss = lossfunction(preds.float(),target.float())
-#            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            print("Desejado: ",target , "\nPrevisto: " , preds)
+            save_preds(log_time, preds, d_img)   
+            with torch.no_grad():
+                model.eval()
+                preds = model(img, scales, args.flip)
+                print("Eval: " ,preds, "\n")
+                model.train()
 
-            print("Desejado: ",target , "\nPrevisto: " , preds, "\n")
+            optimizer.zero_grad()
+            loss.backward()
+
+            optimizer.step()
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
             del preds, target, img
             logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -318,9 +340,11 @@ def main():
                     100. * batch_i / len(my_dataset), loss.item())
             print(logstring)
             logforloss.write(logstring + '\n') 
+#
+
     #pdb.set_trace()
-    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, LR, time.time()))
-    logforloss.close()
+#    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, LR, time.time()))
+#    logforloss.close()
     
     
     #################
@@ -336,8 +360,8 @@ def main():
     #pdb.set_trace()
     #model.cls.load_state_dict(data["state_dict"]["cls"])
     #modle.cls.weight = data([''])
-##    model.eval()
-#    
+#    model.eval()
+    
 #    with torch.no_grad():
 #
 #        for epoch in range(epochs):
