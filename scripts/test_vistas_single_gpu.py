@@ -43,11 +43,33 @@ parser.add_argument("--rank", metavar="RANK", type=int, default=0, help="GPU id"
 random.seed(42)
 
 def save_preds(log_time, preds, img_timestamp):
-    f= open("preds_output_" +log_time+ ".txt","a+")
+    f= open("output_train/preds_output_" +log_time+ ".txt","a+")
     preds_array = preds[0].data.cpu().numpy()
     for i in range(len(preds_array)):
         f.write(str(preds_array[i]) +" " )
     f.write(str(img_timestamp)+"\n")
+
+def save_output(log_time, image_folder_string, target, preds, preds_eval, logstring):
+    f= open("output_train/output_" +log_time+ ".txt","a+")
+    target_array = target.data.cpu().numpy()
+    f.write(str(image_folder_string)+"\n")
+    f.write("Desejado: ")
+    for i in range(len(target_array)):
+        f.write(str(target_array[i]) + " " )
+
+    preds_array = preds[0].data.cpu().numpy()
+    f.write("\nPrevisto: ")
+    for i in range(len(preds_array)):
+        f.write(str(preds_array[i]) + " " )
+    preds_eval_array = preds_eval[0].data.cpu().numpy()
+    f.write("\nEval: ")
+    for i in range(len(preds_eval_array)):
+        f.write(str(preds_eval_array[i]) + " " )
+    f.write("\n"+logstring+"\n")
+
+
+
+
 
 def get_data(txt_rddf, image_folder, arg_random):
     dados_rddf = []
@@ -290,7 +312,7 @@ def main():
     #pdb.set_trace()
     
     log_time = str(time.time()) 
-    logforloss = open('lossfunction_'+ log_time +'.txt','a')
+    logforloss = open('output_train/lossfunction_'+ log_time +'.txt','a')
 
     for epoch in range(epochs):
 
@@ -303,10 +325,11 @@ def main():
 #           LR *= 0.1
 
         for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
-            print(image_folder + '/' + str(d_img) + '-r.png')
+            image_folder_string = (image_folder + '/' + str(d_img) + '-r.png')
+            print(image_folder_string)
         # for batch_i, rec in enumerate(data_loader):
 #            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
-            image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
+            image_temp = Image.open(image_folder_string).convert(mode="RGB")
             # normalize
 #            image_temp = image_temp/255.0
 #            print("1: ", image_temp.getdata()[0])
@@ -320,13 +343,14 @@ def main():
             #pdb.set_trace()
             img  = img.unsqueeze(0).to(device)
             preds = model(img, scales, args.flip)
+            preds_eval = preds
             loss = lossfunction(preds.float(),target.float())
             print("Desejado: ",target , "\nPrevisto: " , preds)
             save_preds(log_time, preds, d_img)   
             with torch.no_grad():
                 model.eval()
-                preds = model(img, scales, args.flip)
-                print("Eval: " ,preds, "\n")
+                preds_eval = model(img, scales, args.flip)
+                print("Eval: " ,preds_eval, "\n")
                 model.train()
 
             optimizer.zero_grad()
@@ -334,11 +358,13 @@ def main():
 
             optimizer.step()
             #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
-            del preds, target, img
             logstring =  'Train Epoch: {} [/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch , len(my_dataset),
                     100. * batch_i / len(my_dataset), loss.item())
             print(logstring)
+
+            save_output(log_time, image_folder_string, target, preds, preds_eval, logstring)
+            del preds, target, img, preds_eval
             logforloss.write(logstring + '\n') 
 #
 
