@@ -23,6 +23,8 @@ from inplace_abn import InPlaceABN
 import pdb
 import cv2
 
+batch_size = 2
+
 parser = argparse.ArgumentParser(description="Testing script for the Vistas segmentation model")
 parser.add_argument("--scales", metavar="LIST", type=str, default="[0.7, 1, 1.2]", help="List of scales")
 parser.add_argument("--flip", action="store_true", help="Use horizontal flipping")
@@ -291,19 +293,19 @@ def main():
  #          LR *= 0.1
 
         for batch_i, batch  in enumerate(train_loader):
-            img = batch['image']
-            target = batch['params']
+            img = batch['image'].to(device)
+            target = batch['params'].to(device)
 
             preds = model(img, scales, args.flip)
             preds_eval = preds
             loss = weighted_mse_loss(preds.float(),target.float(), torch.tensor([1.0, 5.0, 1.0, 1.0, 1.0]).to(device))
             print("Desejado: ",target , "\nPrevisto: " , preds)
             # save_preds(log_time, preds, d_img)
- #           with torch.no_grad():
- #               model.eval()
- #               preds_eval = model(img, scales, args.flip)
- #               print("Eval: " ,preds_eval, "\n")
- #               model.train()
+            with torch.no_grad():
+                model.eval()
+                preds_eval = model(img, scales, args.flip)
+                print("Eval: " ,preds_eval, "\n")
+                model.train()
 
             optimizer.zero_grad()
             loss.backward()

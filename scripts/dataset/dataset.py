@@ -6,6 +6,9 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+import os
+import numpy as np
+
 class RDDFPredictDataset(Dataset):
     """RDDF Predict dataset."""
 
@@ -30,13 +33,13 @@ class RDDFPredictDataset(Dataset):
             idx = idx.tolist()
 
         img_name = os.path.join(self.root_dir,
-                                self.data[idx, -1])
+                                self.data[idx][-1]+'-r.png')
         image = Image.open(img_name).convert(mode="RGB")
 
         if self.transform:
-            sample = self.transform(sample)
+            image = self.transform(image)
             
-        params = self.data[idx, :-1]
+        params = torch.from_numpy(np.array(self.data, np.float)[idx, :-1])
         sample = {'image': image, 'params': params}
 
         return sample

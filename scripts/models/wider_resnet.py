@@ -134,9 +134,11 @@ class WiderResNetA2(nn.Module):
                     stride = 2 if block_id == 0 and mod_id == 2 else 1
 
                 if mod_id == 4:
-                    drop = partial(nn.Dropout2d, p=0.3)
+                    drop = partial(nn.Dropout2d, p=0.0)
+#                    drop = partial(nn.Dropout2d, p=0.3)
                 elif mod_id == 5:
-                    drop = partial(nn.Dropout2d, p=0.5)
+                    drop = partial(nn.Dropout2d, p=0.0)
+#                    drop = partial(nn.Dropout2d, p=0.5)
                 else:
                     drop = None
 
