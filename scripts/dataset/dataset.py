@@ -6,6 +6,40 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+class RDDFPredictDataset(Dataset):
+    """RDDF Predict dataset."""
+
+    def __init__(self, file, root_dir, transform=None):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        with open(file, 'r') as f:
+            self.data = [line.strip().split(" ") for line in f]
+        self.root_dir = root_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_name = os.path.join(self.root_dir,
+                                self.data[idx, -1])
+        image = Image.open(img_name).convert(mode="RGB")
+
+        if self.transform:
+            sample = self.transform(sample)
+            
+        params = self.data[idx, :-1]
+        sample = {'image': image, 'params': params}
+
+        return sample
 
 class SegmentationDataset(Dataset):
     _EXTENSIONS = ["*.jpg", "*.jpeg", "*.png"]
