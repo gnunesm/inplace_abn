@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as functional
 from PIL import Image, ImagePalette
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
-
+import math
 import random
 import models
 from dataset.dataset import SegmentationDataset, segmentation_collate#, TrainingSegmentationDataset
@@ -44,29 +44,39 @@ random.seed(42)
 
 def save_preds(log_time, preds, img_timestamp):
     f= open("output_train/preds_output_" +log_time+ ".txt","a+")
-    preds_array = preds[0].data.cpu().numpy()
+#    preds_array = preds[0].data.cpu().numpy()
+    preds_array = preds.squeeze().tolist()
     for i in range(len(preds_array)):
         f.write(str(preds_array[i]) +" " )
     f.write(str(img_timestamp)+"\n")
+    del preds_array
 
 def save_output(log_time, image_folder_string, target, preds, preds_eval, logstring):
     f= open("output_train/output_" +log_time+ ".txt","a+")
-    target_array = target.data.cpu().numpy()
+#    target_array = target.data.cpu().numpy()
+    target_array = target.squeeze().tolist()
+
     f.write(str(image_folder_string)+"\n")
     f.write("Desejado: ")
     for i in range(len(target_array)):
         f.write(str(target_array[i]) + " " )
+    del target_array
+#    preds_array = preds[0].data.cpu().numpy()
+    preds_array = preds.squeeze().tolist()
 
-    preds_array = preds[0].data.cpu().numpy()
     f.write("\nPrevisto: ")
     for i in range(len(preds_array)):
         f.write(str(preds_array[i]) + " " )
-    preds_eval_array = preds_eval[0].data.cpu().numpy()
-    f.write("\nEval: ")
-    for i in range(len(preds_eval_array)):
-        f.write(str(preds_eval_array[i]) + " " )
-    f.write("\n"+logstring+"\n")
-
+    f.write("\n")
+    del preds_array
+    if(preds_eval!=0):
+#        preds_eval_array = preds_eval[0].data.cpu().numpy()
+        preds_eval_array = preds_eval.squeeze().tolist()
+        f.write("Eval: ")
+        for i in range(len(preds_eval_array)):
+            f.write(str(preds_eval_array[i]) + " " )
+        f.write("\n"+logstring+"\n")
+        del preds_eval_array
 
 
 
@@ -85,7 +95,10 @@ def get_data(txt_rddf, image_folder, arg_random):
     if(arg_random):
         lista_temp = []
         while(len(lista_temp) < 100):
-            lista_temp.append(dados_rddf[random.randint(0,len(dados_rddf))])
+            rand_number = random.randint(0,len(dados_rddf)-1)
+#            print(len(dados_rddf), rand_number)
+            if(dados_rddf[rand_number] not in lista_temp):
+                lista_temp.append(dados_rddf[rand_number])
         dados_rddf = lista_temp
     return  dados_rddf, image_folder, images_path
 
@@ -96,6 +109,8 @@ def flip(x, dim):
                                 dtype=torch.long, device=x.device)
     return x[tuple(indices)]
 
+def weighted_mse_loss(input, target, weight):
+    return torch.sum(weight * (input - target) ** 2)
 
 class SegmentationModule(nn.Module):
     _IGNORE_INDEX = 255
@@ -154,12 +169,12 @@ class SegmentationModule(nn.Module):
         self.head = head
 #        self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
-#        self.out_vector=nn.Linear(1228800, 5)
-        self.out_vector=nn.Sequential(
+        self.out_vector=nn.Linear(1228800, 5)
+#        self.out_vector=nn.Sequential(
 #            nn.ReLU(),
-            nn.Linear(1228800, 5)
+#            nn.Linear(1228800, 5)
 #            nn.Linear(50 , 5)
-        )
+#        )
 
         self.classes = classes
 #        if fusion_mode == "mean":
@@ -205,40 +220,6 @@ def main():
     model = SegmentationModule(body, head, 256, 5, args.fusion_mode) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
-    #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
-
-    #model.cls.load_state_dict(cls_state) 
-    #model = model.cuda().eval()
-    #print(model)
-
-#     Create data loader
-#     transformation = SegmentationTransform(     # Only applied to RGB
-#         2048,
-#         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
-#         (0.25685097, 0.26509955, 0.29067996),
-#     )
-#     dataset = SegmentationDataset(args.data, transformation)
-#     data_loader = DataLoader(
-#         dataset,
-#         batch_size=1,
-#         pin_memory=True,
-#         sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
-#         num_workers=1,
-#         collate_fn=segmentation_collate,
-#         shuffle=False
-#     )
-
-    # training_dataset = TrainingSegmentationDataset('../RGBrunway',
-    #                                                transformation,
-    #                                                '../traininglabels')
-    # data_train_loader = DataLoader(
-    #     training_dataset,
-    #     batch_size=2,
-    #     pin_memory=True,
-    #     num_workers=0,
-    #     collate_fn=segmentation_collate,
-    #     shuffle=True,
-    # )
     arg_random = True
 
     my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/', arg_random)
@@ -254,17 +235,6 @@ def main():
         (0.41738699, 0.45732192, 0.46886091), # rgb mean and std - would this affect training at all?
         (0.25685097, 0.26509955, 0.29067996),
     )
-    # dataset = SegmentationDataset(args.data, transformation)
-    # data_loader = DataLoader(
-    #     dataset,
-    #     batch_size=1,
-    #     pin_memory=True,
-    #     sampler=DistributedSampler(dataset, num_replicas=1,rank=args.rank),#args.world_size, args.rank),
-    #     num_workers=1,
-    #     collate_fn=segmentation_collate,
-    #     shuffle=False
-    # )
-
 
 #    print(data_target)
     ####################
@@ -286,15 +256,14 @@ def main():
 
     #no_epochs = 50
     LR = 1e-7
-    momentum = 0.98
-    epochs = 10
+#    momentum = 0.98
+    epochs = 2000
 
     device = torch.device("cuda:0")
     model.to(device)
     model.train()
 
 
-    #pdb.set_trace()
 
     # Am definitely training on the right parameters.
 
@@ -308,12 +277,11 @@ def main():
     oname = 'Adam'
     
     scales = eval(args.scales)
-    lossfunction = nn.MSELoss().to(device)
+#    lossfunction = weighted_mse_loss().to(device)
     #pdb.set_trace()
     
     log_time = str(time.time()) 
     logforloss = open('output_train/lossfunction_'+ log_time +'.txt','a')
-
     for epoch in range(epochs):
 
         #if epoch == 200:
@@ -321,37 +289,28 @@ def main():
 
         if epoch % 20 == 0:
             LR *= 0.1
-#        if epoch == 100:
-#           LR *= 0.1
+ #       if epoch == 100:
+ #          LR *= 0.1
 
         for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
             image_folder_string = (image_folder + '/' + str(d_img) + '-r.png')
             print(image_folder_string)
-        # for batch_i, rec in enumerate(data_loader):
-#            image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
             image_temp = Image.open(image_folder_string).convert(mode="RGB")
             # normalize
-#            image_temp = image_temp/255.0
-#            print("1: ", image_temp.getdata()[0])
-#            image_temp = Image.eval(image_temp, (lambda x: x/255.0))
-#            print("2:  ",image_temp.getdata()[0])
             img = transformation(image_temp)
-#            image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-#            img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
-            # img = rec["img"].to(device)
             target = torch.from_numpy(d_target).float().to(device)
-            #pdb.set_trace()
             img  = img.unsqueeze(0).to(device)
+
             preds = model(img, scales, args.flip)
             preds_eval = preds
-            loss = lossfunction(preds.float(),target.float())
+            loss = weighted_mse_loss(preds.float(),target.float(), torch.tensor([1.0, 5.0, 1.0, 1.0, 1.0]).to(device))
             print("Desejado: ",target , "\nPrevisto: " , preds)
             save_preds(log_time, preds, d_img)   
-            with torch.no_grad():
-                model.eval()
-                preds_eval = model(img, scales, args.flip)
-                print("Eval: " ,preds_eval, "\n")
-                model.train()
+ #           with torch.no_grad():
+ #               model.eval()
+ #               preds_eval = model(img, scales, args.flip)
+ #               print("Eval: " ,preds_eval, "\n")
+ #               model.train()
 
             optimizer.zero_grad()
             loss.backward()
@@ -363,14 +322,17 @@ def main():
                     100. * batch_i / len(my_dataset), loss.item())
             print(logstring)
 
-            save_output(log_time, image_folder_string, target, preds, preds_eval, logstring)
+ #           save_output(log_time, image_folder_string, target, preds, preds_eval, logstring)
+            save_output(log_time, image_folder_string, target, preds, 0, logstring)
             del preds, target, img, preds_eval
             logforloss.write(logstring + '\n') 
-#
+ #       torch.save(model.state_dict(),'weights/ckpoint_{}_{}_{}.pt'.format(0, LR, log_time))
+        # Overwrite checkpoint
+        torch.save(model.state_dict(),'weights/ckpoint_{}.pt'.format(log_time))
 
-    #pdb.set_trace()
-#    torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, LR, time.time()))
-#    logforloss.close()
+
+ #   torch.save(model.state_dict(),'ckpoint_{}_{}_{}.pt'.format(epoch, LR, time.time()))
+    logforloss.close()
     
     
     #################
@@ -425,6 +387,7 @@ def main():
 #                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
 #                del preds, target, img
 #    
+
 
 def load_snapshot(snapshot_file):
     """Load a training snapshot"""
