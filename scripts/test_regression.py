@@ -1,7 +1,7 @@
 import argparse
 from functools import partial
 from os import path
-
+import os
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -39,19 +39,14 @@ parser.add_argument("output", metavar="OUT_DIR", type=str, help="Path to output 
 parser.add_argument("--world-size", metavar="WS", type=int, default=1, help="Number of GPUs")
 parser.add_argument("--rank", metavar="RANK", type=int, default=0, help="GPU id")
 
-def get_data(txt_rddf, image_folder):
-    dados_rddf = []
+def get_data(image_folder):
     if('/' == image_folder[-1]):
         image_folder = image_folder[:-1]
-    with open(txt_rddf, 'r') as f:
-        dados_rddf = [line.strip().split(" ") for line in f]
     images_path = []
-    for i in range(len(dados_rddf)):
-        images_path.append(image_folder + '/' + dados_rddf[i][5] + '-r.png')
-
-#            print(image_folder + '/' + dados_rddf[i][5] + '-r.png')
-
-    return  dados_rddf, image_folder, images_path
+    lista = os.listdir(image_folder)
+    for i in range(len(lista)):
+        images_path.append(image_folder + '/' + lista[i])
+    return  image_folder, images_path
 
 
 def flip(x, dim):
@@ -118,7 +113,7 @@ class SegmentationModule(nn.Module):
         self.head = head
         #self.cls = nn.Conv2d(head_channels, classes, 1)
         # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
-        self.out_vector=nn.Linear(1228800, 5)
+        self.out_vector=nn.Linear(1228800, 4)
 
         self.classes = classes
         if fusion_mode == "mean":
@@ -137,7 +132,6 @@ class SegmentationModule(nn.Module):
 
         x_up = self.body(x_up)
         x_up = self.head(x_up)
-        print(x_up)
 
         #pdb.set_trace()
 
@@ -166,8 +160,9 @@ def main():
                                                                       # number of classes
                                                                       # in final model.cls layer
 #    data = torch.load('ckpoint_0_SGDwithLRdecay+400_1e-05.pt')
-    data = torch.load('ckpoint_199_SGDwithLRdecay+400_1e-07.pt')
+    data = torch.load('output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_4.pt')
     model.load_state_dict(data)
+
     #model = SegmentationModule(body, head, 256, 65, args.fusion_mode)
 
     #model.cls.load_state_dict(cls_state) 
@@ -203,12 +198,7 @@ def main():
     #     shuffle=True,
     # )
 
-    my_dataset, image_folder, images_path = get_data('/dados/rddf_predict/teste', '/dados/log_png_1003/')
-    my_dataset = np.array(my_dataset)
-    data_imgs = my_dataset[:, -1]
-#    print(data_imgs)
-    data_target = my_dataset[:, :-1]
-    data_target = data_target.astype(np.float)
+    image_folder, images_path = get_data('/dados/log_png_1003/')
 
 #     Create data loader
     transformation = SegmentationTransform(     # Only applied to RGB
@@ -249,44 +239,25 @@ def main():
     #pdb.set_trace()
 
     with torch.no_grad():
+        for batch_i, d_img in enumerate(images_path):
+            image_temp = Image.open(d_img).convert(mode="RGB")
+            
+            img = transformation(image_temp)
+            img  = img.unsqueeze(0).to(device, non_blocking=True)
 
-        for epoch in range(epochs):
+            preds = model(img, scales, args.flip)
+            print(d_img)
+            print(preds)
 
-            #if epoch == 200:
-            #    LR *= 0.1
+#            loss = lossfunction(preds.float(),target.float())
 
-            if epoch == 100:
-                LR *= 0.1
+            #print(d_img)
+            #print(preds.float(), '----', target.float())
+            #print(target.shape)
+            #print(preds.shape)
 
-            for batch_i, (d_img, d_target)  in enumerate(zip(data_imgs, data_target)):
-                print(image_folder + '/' + str(d_img) + '-r.png')
-            # for batch_i, rec in enumerate(data_loader):
-#                image_temp = cv2.imread(image_folder + '/' + d_img + '-r.png')
-                # normalize
-#                image_temp = image_temp/255.0
-#                image_temp = np.transpose(np.expand_dims(image_temp, axis=0), (0, 3, 1, 2))
-                image_temp = Image.open(image_folder + '/' + d_img + '-r.png').convert(mode="RGB")
-                
-                img = transformation(image_temp)
-                target = torch.from_numpy(d_target).float().to(device)
-                img  = img.unsqueeze(0).to(device)
-
-#                img, target = torch.from_numpy(image_temp).float().to(device), torch.from_numpy(d_target).float().to(device)
-                # img = rec["img"].to(device)
-                #pdb.set_trace()
-                
-                preds = model(img, scales, args.flip)
-                print(preds)
-
-                loss = lossfunction(preds.float(),target.float())
-
-                #print(d_img)
-                #print(preds.float(), '----', target.float())
-                #print(target.shape)
-                #print(preds.shape)
-
-                #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
-                del preds, target, img
+            #torch.save(model.state_dict,'ckpoint_{}_{}.pt'.format(batch_i,epoch))
+            del preds, img
     
     
     #################
