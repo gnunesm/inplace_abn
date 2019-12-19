@@ -24,7 +24,7 @@ from inplace_abn import InPlaceABN
 import pdb
 import cv2
 
-batch_size = 2
+batch_size = 15
 
 #parser = argparse.ArgumentParser(description="Testing script for the Vistas segmentation model")
 #parser.add_argument("--scales", metavar="LIST", type=str, default="[0.7, 1, 1.2]", help="List of scales")
@@ -45,13 +45,13 @@ batch_size = 2
 
 random.seed(42)
 
-def save_lossfunction(log_time, log_string, dirName):
+def save_lossfunction(log_time, logstring, dirName):
     f = open(dirName+"/lossfunction_"+ log_time +".txt","a+")
     f.write(logstring + '\n')
     f.close()    
 
 
-def save_log_output(logstring, log_time, dirName):
+def save_log(log_time, logstring, dirName):
     f = open(dirName+"/output_"+log_time+".txt","a+")
     f.write(logstring+"\n")
     f.close()
@@ -102,95 +102,30 @@ def get_data(txt_rddf, image_folder, arg_random):
 class SegmentationModule(nn.Module):
     _IGNORE_INDEX = 255
     
-    class _MeanFusion:
-        def __init__(self, x, classes):
-            self.buffer = x.new_zeros(x.size(0), classes, x.size(2), x.size(3))
-            self.counter = 0
-
-        def update(self, sem_logits):
-            probs = functional.softmax(sem_logits, dim=1)
-            self.counter += 1
-            self.buffer.add_((probs - self.buffer) / self.counter)
-
-        def output(self):
-            probs, cls = self.buffer.max(1)
-            return cls #zprobs, cls
-
-    class _VotingFusion:
-        def __init__(self, x, classes):
-            self.votes = x.new_zeros(x.size(0), classes, x.size(2), x.size(3))
-            self.probs = x.new_zeros(x.size(0), classes, x.size(2), x.size(3))
-
-        def update(self, sem_logits):
-            probs = functional.softmax(sem_logits, dim=1)
-            probs, cls = probs.max(1, keepdim=True)
-
-            self.votes.scatter_add_(1, cls, self.votes.new_ones(cls.size()))
-            self.probs.scatter_add_(1, cls, probs)
-
-        def output(self):
-            cls, idx = self.votes.max(1, keepdim=True)
-            probs = self.probs / self.votes.clamp(min=1)
-            probs = probs.gather(1, idx)
-            return probs.squeeze(1), cls.squeeze(1)
-
-    class _MaxFusion:
-        def __init__(self, x, _):
-            self.buffer_cls = x.new_zeros(x.size(0), x.size(2), x.size(3), dtype=torch.long)
-            self.buffer_prob = x.new_zeros(x.size(0), x.size(2), x.size(3))
-
-        def update(self, sem_logits):
-            probs = functional.softmax(sem_logits, dim=1)
-            max_prob, max_cls = probs.max(1)
-
-            replace_idx = max_prob > self.buffer_prob
-            self.buffer_cls[replace_idx] = max_cls[replace_idx]
-            self.buffer_prob[replace_idx] = max_prob[replace_idx]
-
-        def output(self):
-            return self.buffer_prob, self.buffer_cls
-
-    def __init__(self, body, head, head_channels, classes, fusion_mode="mean"):
+    def __init__(self, body, head):
         super(SegmentationModule, self).__init__()
         self.body = body
         self.head = head
-#        self.cls = nn.Conv2d(head_channels, classes, 1)
-        # self.cls = nn.Conv2d(head_channels, classes, 3) #3x3 conv layer
         self.out_vector=nn.Linear(1228800, 4)
 #        self.out_vector=nn.Sequential(
 #            nn.ReLU(),
 #            nn.Linear(1228800, 5)
 #            nn.Linear(50 , 5)
 #        )
-
-        self.classes = classes
-#        if fusion_mode == "mean":
-#            self.fusion_cls = SegmentationModule._MeanFusion
-#        elif fusion_mode == "voting":
-#            self.fusion_cls = SegmentationModule._VotingFusion
-#        elif fusion_mode == "max":
-#            self.fusion_cls = SegmentationModule._MaxFusion
-
-    def _network(self, x, scale):
-        if scale != 1:
-            scaled_size = [round(s * scale) for s in x.shape[-2:]]
-            x_up = functional.upsample(x, size=scaled_size, mode="bilinear")
-        else:
-            x_up = x
+    def _network(self, x):
+        x_up = x
 
         x_up = self.body(x_up)
         x_up = self.head(x_up)
-
-        #pdb.set_trace()
-
         x_up = x_up.reshape(x_up.size(0), -1)
+
         sem_logits = self.out_vector(x_up)
 
         del x_up
         return sem_logits
 
-    def forward(self, x, scales, do_flip=True):
-        return self._network(x, 1)
+    def forward(self, x):
+        return self._network(x)
 
 
 def main():
@@ -198,13 +133,14 @@ def main():
 #    args = parser.parse_args()
 
 
-    # Train = 0, Eval = 1
-    mode = 1
+    # Train = 0, Eval = 1, Resume Train = 2
+    mode = 2
     # Checkpoint path
-    chk_path = "weights_batch/ckpoint_1576703507.3473513.pt"
+    chk_path = "output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_2.pt"
     # Checkpoint save quantity
     chk_qtd = 6
     chk_count = 0
+    log_time = ""
 
     # Torch stuff
     #torch.cuda.set_device(args.rank)
@@ -213,7 +149,7 @@ def main():
 
     # Create model by loading a snapshot
     body, head, cls_state = load_snapshot('/home/sabrina/Documents/Inplace_ABN/wide_resnet38_deeplab_vistas.pth.tar')
-    model = SegmentationModule(body, head, 256, 5, "mean") # this changes
+    model = SegmentationModule(body, head) # this changes
                                                                       # number of classes
                                                                       # in final model.cls layer
     arg_random = True
@@ -236,23 +172,34 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         my_dataset, batch_size=batch_size, shuffle=True,
         num_workers=1)
+
     device = torch.device("cuda:0")
     model.to(device)
    
     if(mode == 1):
         model.eval()
         if(chk_path != ""):
-           data = torch.load(chk_path)
-           model.load_state_dict(data)
+            data = torch.load(chk_path)
+            model.load_state_dict(data)
+            model.to(device)
         with torch.no_grad():
             for batch_i, batch  in enumerate(train_loader):
                 img = batch['image'].to(device)
                 target = batch['params'].to(device)
-                preds_eval = model(img, scales, False)
+                preds_eval = model(img)
                 print("Eval: " ,preds_eval, "\n")
         exit()
         
 
+    if (mode == 2 and chk_path!= ""):
+        data = torch.load(chk_path)
+        model.load_state_dict(data)
+        model.to(device)
+        # 3 para pegar o logtime do path
+        log_time = chk_path.split("/")[1]
+
+
+    model.train()
 
 
     # Run fine-tuning (of modified class layers)   
@@ -272,8 +219,6 @@ def main():
     LR = 1e-7
 #    momentum = 0.98
     epochs = 2000
-
-    model.train()
     # Am definitely training on the right parameters.
 
     #optimizer = optim.SGD(filter(lambda x: x.requires_grad, model.parameters()),
@@ -288,14 +233,17 @@ def main():
 #    scales = eval(args.scales)
     lossfunction = nn.MSELoss().to(device)
     #pdb.set_trace()
-    
-    log_time = str(time.time()) 
+
+    if (log_time==""):
+        log_time = str(time.time()) 
+
 #    logforloss = open('output_batch_train/lossfunction_'+ log_time +'.txt','a')
 	
     # Create target Directory if don't exist
-    dirName = "output_train_batch/"+log_time
+    dirName = "output_batch_train/"+log_time
     if not os.path.exists(dirName):
         os.mkdir(dirName)
+        os.mkdir(dirName+"/checkpoints")
         print("Directory " , dirName ,  " Created ")
     else:    
         print("Directory " , dirName ,  " already exists")
@@ -314,7 +262,7 @@ def main():
             img = batch['image'].to(device)
             target = batch['params'].to(device)
 
-            preds = model(img, scales, False)
+            preds = model(img)
             preds_eval = preds
             loss = lossfunction(preds.float(),target.float())
 
@@ -325,7 +273,7 @@ def main():
 
 #            with torch.no_grad():
 #                model.eval()
-#                preds_eval = model(img, scales, False)
+#                preds_eval = model(img)
 #                log_output += "Eval: "+str(preds_eval)+"\n"
 #                print("Eval: " ,preds_eval, "\n")
 #                model.train()
@@ -341,13 +289,13 @@ def main():
             log_output += logstring
             print(logstring)
 
-            save_lossfunction(log_output, log_time, dirName)
-            save_log(log_time, logstring, dirName)
+            save_lossfunction(log_time, logstring, dirName)
+            save_log(log_time, log_output, dirName)
 
             del preds, target, img, preds_eval
             # Overwrite salvando a cada 20 interacoes
             if(batch_i % 20 == 0):
-                torch.save(model.state_dict(), dirName+'/ckpoint_{}_{}.pt'.format(log_time, chk_count))
+                torch.save(model.state_dict(), dirName+'/checkpoints/ckpoint_{}_{}.pt'.format(log_time, chk_count))
                 chk_count += 1
 
             if(chk_count >= 6):
