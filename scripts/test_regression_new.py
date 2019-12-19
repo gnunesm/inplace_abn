@@ -133,7 +133,7 @@ def main():
             img = transformation(image_temp)
             img  = img.unsqueeze(0).to(device, non_blocking=True)
 
-            preds = model(img, scales, args.flip)
+            preds = model(img)
             print(d_img)
             print(preds)
 
