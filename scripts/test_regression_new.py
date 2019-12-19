@@ -23,6 +23,10 @@ from modules.deeplab import DeeplabV3
 from inplace_abn import InPlaceABN
 import pdb
 import cv2
+from ttictoc import TicToc
+
+t = TicToc()
+t.tic()
 
 #parser = argparse.ArgumentParser(description="Testing script for the Vistas segmentation model")
 #parser.add_argument("--scales", metavar="LIST", type=str, default="[0.7, 1, 1.2]", help="List of scales")
@@ -136,6 +140,9 @@ def main():
             preds = model(img)
             print(d_img)
             print(preds)
+            t.toc()
+            print(t.elapsed)
+            t.tic()
 
 def load_snapshot(snapshot_file):
     """Load a training snapshot"""
