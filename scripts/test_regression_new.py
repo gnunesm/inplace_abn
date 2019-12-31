@@ -54,6 +54,21 @@ def get_data(image_folder):
         images_path.append(image_folder + '/' + lista[i])
     return  image_folder, images_path
 
+def save_eval(log_time, preds, img_timestamp):
+    f= open("output_eval/" +log_time+ ".txt","a+")
+#    preds_array = preds.squeeze().tolist()
+    preds_array = preds.tolist()
+    img_timestamp = img_timestamp.split("/")[-1][:-6]
+    for i in range(len(preds_array)):
+        for j in range(len(preds_array[i])):
+            f.write(str(preds_array[i][j]) +" " )
+        f.write(str(img_timestamp+"\n"))
+    f.close()
+    del preds_array
+
+
+
+
 #def flip(x, dim):
 #    indices = [slice(None)] * x.dim()
 #    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1,
@@ -95,8 +110,9 @@ class SegmentationModule(nn.Module):
 def main():
     # Load configuration
 #    args = parser.parse_args()
-    chk_path = "output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_2.pt"
-
+#    chk_path = "output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_5.pt"
+    chk_path = "output_batch_train/1577142081.4603548/checkpoints/BestLoss.pt"
+    log_time = chk_path.split("/")[1]
     # Torch stuff
     #torch.cuda.set_device(args.rank)
     torch.cuda.set_device(0) # To get this to run on free RAAMAC GPU - Dominic
@@ -116,7 +132,7 @@ def main():
         (0.25685097, 0.26509955, 0.29067996),
     )
 
-    image_folder, images_path = get_data('/dados/log_png_1003/')
+    image_folder, images_path = get_data('/dados/log_png_20190915-contrario/')
 
     ####################
     #   TRAIN
@@ -127,6 +143,7 @@ def main():
    
     model.eval()
     if(chk_path != ""):
+        print("Load do checkpoint efetuado!")
         data = torch.load(chk_path)
         model.load_state_dict(data)
         model.to(device)
@@ -140,6 +157,7 @@ def main():
             preds = model(img)
             print(d_img)
             print(preds)
+            save_eval(log_time, preds, d_img)
             t.toc()
             print(t.elapsed)
             t.tic()

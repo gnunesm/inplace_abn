@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as functional
 from PIL import Image, ImagePalette
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
 import math
@@ -23,8 +23,10 @@ from modules.deeplab import DeeplabV3
 from inplace_abn import InPlaceABN
 import pdb
 import cv2
+import sys
 
-batch_size = 15
+
+batch_size = 4
 
 #parser = argparse.ArgumentParser(description="Testing script for the Vistas segmentation model")
 #parser.add_argument("--scales", metavar="LIST", type=str, default="[0.7, 1, 1.2]", help="List of scales")
@@ -59,13 +61,39 @@ def save_log(log_time, logstring, dirName):
 def save_preds(log_time, preds, img_timestamp, dirName):
     f= open(dirName+"/preds_output_" +log_time+ ".txt","a+")
 #    preds_array = preds[0].data.cpu().numpy()
-    preds_array = preds.squeeze().tolist()
+    preds_array = preds.tolist()
+#    print(preds_array) 
     for i in range(len(preds_array)):
         for j in range(len(preds_array[i])):
             f.write(str(preds_array[i][j]) +" " )
         f.write(str(img_timestamp[i])+"\n")
+    
     f.close()
     del preds_array
+
+def evaluate_loss(model, eval_loader, old_loss, dirName, log_time, device, lossfunction):
+    f = open(dirName+"/Eval_lossfunction_"+ log_time +".txt","a+")
+    model.eval()
+    print("Realização do eval: ")
+    loss = 0
+    with torch.no_grad():
+        for batch_i, batch in enumerate(eval_loader):
+            img = batch['image'].to(device)
+            target = batch['params'].to(device)
+
+            preds = model(img)
+            loss += lossfunction(preds.float(),target.float())
+            
+            print("Desejado: ",target , "\nPrevisto: " , preds)
+#            print(str(loss.item())+" "+str(loss.item()/len(eval_loader.dataset)))
+    f.write(str(loss.item())+" "+str(loss.item()/len(eval_loader.dataset))+"\n")
+    if(loss<old_loss or old_loss == -1):
+        #save
+        torch.save(model.state_dict(), dirName+'/checkpoints/BestLoss.pt')
+    else:
+        loss = old_loss
+    model.train()
+    return loss
 
 
 def get_data(txt_rddf, image_folder, arg_random):
@@ -88,6 +116,42 @@ def get_data(txt_rddf, image_folder, arg_random):
                 lista_temp.append(dados_rddf[rand_number])
         dados_rddf = lista_temp
     return  np.array(dados_rddf), image_folder, images_path
+
+
+class GenHelper(Dataset):
+    def __init__(self, mother, length, mapping):
+        # here is a mapping from this index to the mother ds index
+        self.mapping=mapping
+        self.length=length
+        self.mother=mother
+
+    def __getitem__(self, index):
+        return self.mother[self.mapping[index]]
+
+    def __len__(self):
+        return self.length
+
+
+def train_valid_split(ds, split_fold=20, random_seed=42):
+    '''
+    This is a pytorch generic function that takes a data.Dataset object and splits it to validation and training
+    efficiently.
+    :return:
+    '''
+    if random_seed!=None:
+        np.random.seed(random_seed)
+
+    dslen=len(ds)
+    indices= list(range(dslen))
+    valid_size=dslen//split_fold
+    np.random.shuffle(indices)
+    train_mapping=indices[valid_size:]
+    valid_mapping=indices[:valid_size]
+    train=GenHelper(ds, dslen - valid_size, train_mapping)
+    valid=GenHelper(ds, valid_size, valid_mapping)
+
+    return train, valid
+
 
 
 #def flip(x, dim):
@@ -132,11 +196,36 @@ def main():
     # Load configuration
 #    args = parser.parse_args()
 
-
-    # Train = 0, Eval = 1, Resume Train = 2
     mode = 2
+    chk_path = "output_batch_train/1577550248.019565/checkpoints/BestLoss.pt"
+    my_dataset_img = '/dados/log_complete_2train_1eval/img/'
+    my_dataset_listen = '/dados/log_complete_2train_1eval/listen.txt'
+    eval_dataset_img ='/dados/log_png_20190915/img/'
+    eval_dataset_listen ='/dados/log_png_20190915/listen.txt'
+    
+    if(len(sys.argv) != 1 and len(sys.argv)!= 7 and len(sys.argv)!=5):
+        print("Para executar: python3 test_vistas_single_gpu_batch_new.py mode checkpoint train_img_folder train_img_txt eval_img_folder eval_img_txt (Para treino(mode=0) ou retomar um treino (mode=2))")
+        print("OU\npython3 test_vistas_single_gpu_batch_new.py mode checkpoint eval_img_folder eval_img_txt(Para eval mode=1)")
+        exit() 
+    if(len(sys.argv)== 5):
+        mode = int(sys.argv[1])
+        chk_path = sys.argv[2]
+        eval_dataset_img = sys.argv[3]
+        eval_dataset_listen = sys.argv[4]
+    
+    if(len(sys.argv)==7):
+        mode = int(sys.argv[1])
+        chk_path = sys.argv[2]
+        my_dataset_img = sys.argv[3]
+        my_dataset_listen = sys.argv[4]
+        eval_dataset_img = sys.argv[5]
+        eval_dataset_listen = sys.argv[6]
+        
+   # Train = 0, Eval = 1, Resume Train = 2
     # Checkpoint path
-    chk_path = "output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_2.pt"
+#    chk_path = "output_batch_train/1577142081.4603548/checkpoints/BestLoss_1226.pt"
+#    chk_path = ""
+#    chk_path = "output_batch_train/BestLoss_teste.pt"
     # Checkpoint save quantity
     chk_qtd = 6
     chk_count = 0
@@ -148,9 +237,9 @@ def main():
     cudnn.benchmark = True
 
     # Create model by loading a snapshot
-    body, head, cls_state = load_snapshot('/home/sabrina/Documents/Inplace_ABN/wide_resnet38_deeplab_vistas.pth.tar')
+    body, head = load_snapshot()
     model = SegmentationModule(body, head) # this changes
-                                                                      # number of classes
+                                                                     # number of classes
                                                                       # in final model.cls layer
     arg_random = True
 
@@ -161,22 +250,26 @@ def main():
         (0.25685097, 0.26509955, 0.29067996),
     )
 #    my_dataset = RDDFPredictDataset('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/', transform=transformation)
-    my_dataset = RDDFPredictDataset('/dados/rddf_predict/listen_no_dtheta.txt', '/dados/log_png_1003/', transform=transformation)
+    my_dataset = RDDFPredictDataset(my_dataset_listen, my_dataset_img, transform=transformation)
+    eval_dataset = RDDFPredictDataset(eval_dataset_listen, eval_dataset_img, transform=transformation)
 #    random_dataset, image_folder, images_path = get_data('/dados/rddf_predict/listen_2019-11-29_11:32:36', '/dados/log_png_1003/', arg_random)
 #    my_dataset = RDDFPredictDataset(random_dataset, '/dados/log_png_1003/', transform=transformation)
 #    print(data_target)
     ####################
     #   TRAIN
     ####################
-
+#    train_dataset, eval_dataset = train_valid_split(my_dataset)
     train_loader = torch.utils.data.DataLoader(
-        my_dataset, batch_size=batch_size, shuffle=True,
+       my_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=1)
+    eval_loader = torch.utils.data.DataLoader(
+        eval_dataset, batch_size=batch_size, shuffle=True,
         num_workers=1)
 
     device = torch.device("cuda:0")
     model.to(device)
-   
     if(mode == 1):
+        print("Alo")
         model.eval()
         if(chk_path != ""):
             data = torch.load(chk_path)
@@ -185,28 +278,33 @@ def main():
         with torch.no_grad():
             for batch_i, batch  in enumerate(train_loader):
                 img = batch['image'].to(device)
-                target = batch['params'].to(device)
                 preds_eval = model(img)
                 print("Eval: " ,preds_eval, "\n")
         exit()
         
 
-    if (mode == 2 and chk_path!= ""):
+      
+
+    if(mode == 2 and chk_path!= ""):
         data = torch.load(chk_path)
         model.load_state_dict(data)
         model.to(device)
         # 3 para pegar o logtime do path
         log_time = chk_path.split("/")[1]
 
-
+#####Temporario: Apenas para resolver o problema do nan
+#    data = torch.load("output_batch_train/BestLoss_teste.pt")
+#    model.load_state_dict(data)
+#    model.to(device)
+ 
     model.train()
-
+####
 
     # Run fine-tuning (of modified class layers)   
     for p in model.body.parameters():
-        p.requires_grad = False
+        p.requires_grad = True
     for q in model.head.parameters():
-        q.requires_grad = False
+        q.requires_grad = True
     for q in model.out_vector.parameters():
         q.requires_grad = True
 
@@ -240,6 +338,8 @@ def main():
 #    logforloss = open('output_batch_train/lossfunction_'+ log_time +'.txt','a')
 	
     # Create target Directory if don't exist
+    if not os.path.exists("output_batch_train"):
+        os.mkdir("output_batch_train")
     dirName = "output_batch_train/"+log_time
     if not os.path.exists(dirName):
         os.mkdir(dirName)
@@ -247,6 +347,8 @@ def main():
         print("Directory " , dirName ,  " Created ")
     else:    
         print("Directory " , dirName ,  " already exists")
+    old_loss = -1
+#    old_loss = evaluate_loss(model, eval_loader, old_loss, dirName, log_time, device, lossfunction)
 
     for epoch in range(epochs):
 
@@ -292,16 +394,17 @@ def main():
             save_lossfunction(log_time, logstring, dirName)
             save_log(log_time, log_output, dirName)
 
+#            old_loss = evaluate_loss(model, eval_loader, old_loss, dirName, log_time, device, lossfunction)
             del preds, target, img, preds_eval
-            # Overwrite salvando a cada 20 interacoes
-            if(batch_i % 20 == 0):
+            # Overwrite salvando a cada 50 interacoes
+            if(batch_i % 50 == 0):
                 torch.save(model.state_dict(), dirName+'/checkpoints/ckpoint_{}_{}.pt'.format(log_time, chk_count))
                 chk_count += 1
 
             if(chk_count >= 6):
                 chk_count = 0
 
-
+        old_loss = evaluate_loss(model, eval_loader, old_loss, dirName, log_time, device, lossfunction)
  #       torch.save(model.state_dict(),'weights_batch/ckpoint_{}_{}_{}.pt'.format(0, LR, log_time))
         # Overwrite checkpoint
 #        torch.save(model.state_dict(),'weights_batch/ckpoint_{}.pt'.format(log_time))
@@ -311,7 +414,7 @@ def main():
  #   logforloss.close()
     
 
-def load_snapshot(snapshot_file):
+def load_snapshot():
     """Load a training snapshot"""
     print("--- Loading model from snapshot")
 
@@ -322,11 +425,11 @@ def load_snapshot(snapshot_file):
     head = DeeplabV3(4096, 256, 256, norm_act=norm_act, pooling_size=(84, 84))
 
     # Load snapshot and recover network state
-    data = torch.load(snapshot_file)
-    body.load_state_dict(data["state_dict"]["body"])
-    head.load_state_dict(data["state_dict"]["head"])
+#    data = torch.load(snapshot_file)
+#    body.load_state_dict(data["state_dict"]["body"])
+#    head.load_state_dict(data["state_dict"]["head"])
 
-    return body, head, data["state_dict"]["cls"]
+    return body, head#, data["state_dict"]["cls"]
 
 
 if __name__ == "__main__":
