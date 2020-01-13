@@ -196,10 +196,10 @@ def main():
     # Load configuration
 #    args = parser.parse_args()
 
-    mode = 2
-    chk_path = "output_batch_train/1577550248.019565/checkpoints/BestLoss.pt"
-    my_dataset_img = '/dados/log_complete_2train_1eval/img/'
-    my_dataset_listen = '/dados/log_complete_2train_1eval/listen.txt'
+    mode = 0
+#    chk_path = "output_batch_train/1577550248.019565/checkpoints/BestLoss.pt"
+    my_dataset_img = '/dados/log_complete2020/img/'
+    my_dataset_listen = '/dados/log_complete2020/listen_no_dtheta.txt'
     eval_dataset_img ='/dados/log_png_20190915/img/'
     eval_dataset_listen ='/dados/log_png_20190915/listen.txt'
     
@@ -224,7 +224,7 @@ def main():
    # Train = 0, Eval = 1, Resume Train = 2
     # Checkpoint path
 #    chk_path = "output_batch_train/1577142081.4603548/checkpoints/BestLoss_1226.pt"
-#    chk_path = ""
+    chk_path = ""
 #    chk_path = "output_batch_train/BestLoss_teste.pt"
     # Checkpoint save quantity
     chk_qtd = 6
@@ -237,7 +237,7 @@ def main():
     cudnn.benchmark = True
 
     # Create model by loading a snapshot
-    body, head = load_snapshot()
+    body, head = load_snapshot("../../wide_resnet38_deeplab_vistas.pth.tar")
     model = SegmentationModule(body, head) # this changes
                                                                      # number of classes
                                                                       # in final model.cls layer
@@ -397,7 +397,7 @@ def main():
 #            old_loss = evaluate_loss(model, eval_loader, old_loss, dirName, log_time, device, lossfunction)
             del preds, target, img, preds_eval
             # Overwrite salvando a cada 50 interacoes
-            if(batch_i % 50 == 0):
+            if(batch_i % 5000 == 0):
                 torch.save(model.state_dict(), dirName+'/checkpoints/ckpoint_{}_{}.pt'.format(log_time, chk_count))
                 chk_count += 1
 
@@ -414,7 +414,7 @@ def main():
  #   logforloss.close()
     
 
-def load_snapshot():
+def load_snapshot(snapshot_file):
     """Load a training snapshot"""
     print("--- Loading model from snapshot")
 
@@ -425,9 +425,9 @@ def load_snapshot():
     head = DeeplabV3(4096, 256, 256, norm_act=norm_act, pooling_size=(84, 84))
 
     # Load snapshot and recover network state
-#    data = torch.load(snapshot_file)
-#    body.load_state_dict(data["state_dict"]["body"])
-#    head.load_state_dict(data["state_dict"]["head"])
+    data = torch.load(snapshot_file)
+    body.load_state_dict(data["state_dict"]["body"])
+    head.load_state_dict(data["state_dict"]["head"])
 
     return body, head#, data["state_dict"]["cls"]
 

@@ -85,7 +85,7 @@ class SegmentationModule(nn.Module):
         super(SegmentationModule, self).__init__()
         self.body = body
         self.head = head
-        self.out_vector=nn.Linear(1228800, 4)
+        self.out_vector=nn.Linear(1228800, 5)
 #        self.out_vector=nn.Sequential(
 #            nn.ReLU(),
 #            nn.Linear(1228800, 5)
@@ -111,7 +111,7 @@ def main():
     # Load configuration
 #    args = parser.parse_args()
 #    chk_path = "output_batch_train/1576703507.3473513/checkpoints/ckpoint_1576703507.3473513_5.pt"
-    chk_path = "output_batch_train/1577142081.4603548/checkpoints/BestLoss.pt"
+    chk_path = "output_batch_train/1578357232.3688095/checkpoints/ckpoint_1578357232.3688095_2.pt"
     log_time = chk_path.split("/")[1]
     # Torch stuff
     #torch.cuda.set_device(args.rank)
@@ -147,6 +147,8 @@ def main():
         data = torch.load(chk_path)
         model.load_state_dict(data)
         model.to(device)
+    print(model)
+    #exit()
     with torch.no_grad():
         for batch_i, d_img in enumerate(images_path):
             image_temp = Image.open(d_img).convert(mode="RGB")
