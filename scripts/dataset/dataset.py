@@ -20,8 +20,11 @@ class RDDFPredictDataset(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
-        with open(file, 'r') as f:
-            self.data = [line.strip().split(" ") for line in f]
+        if(isinstance(file, str)):
+            with open(file, 'r') as f:
+                self.data = [line.strip().split(" ") for line in f]
+        else:
+            self.data = file
         self.root_dir = root_dir
         self.transform = transform
 
@@ -40,7 +43,7 @@ class RDDFPredictDataset(Dataset):
             image = self.transform(image)
             
         params = torch.from_numpy(np.array(self.data, np.float)[idx, :-1])
-        sample = {'image': image, 'params': params}
+        sample = {'image': image, 'params': params, 'img_timestamp':self.data[idx][-1]}
 
         return sample
 
